@@ -6,6 +6,7 @@ use gpui::{
     MouseUpEvent, ParentElement as _, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled as _, Subscription, Window, actions, deferred, div, px,
 };
+use gpui_base::input::{DiagnosticColors, InputEditorStyle};
 use gpui_component::{
     ActiveTheme as _, ElementExt as _, Icon, IconName, Root, Sizable as _, Size, TitleBar,
     WindowExt as _,
@@ -58,6 +59,35 @@ const MAX_AUTO_GROW_ROWS: usize = 160;
 const MIN_EDITOR_FONT_SIZE: f32 = 10.;
 const MAX_EDITOR_FONT_SIZE: f32 = 32.;
 const EDITOR_FONT_SIZE_STEP: f32 = 1.;
+
+fn editor_style(focused: bool, cx: &App) -> InputEditorStyle {
+    let theme = cx.theme();
+    InputEditorStyle {
+        foreground: theme.foreground,
+        muted_foreground: theme.muted_foreground,
+        background: theme
+            .highlight_theme
+            .style
+            .editor_background
+            .unwrap_or_else(|| theme.input_background()),
+        border: theme.border,
+        selection: theme.selection,
+        caret: theme.caret,
+        diagnostics: DiagnosticColors {
+            error: theme.highlight_theme.style.status.error(cx),
+            warning: theme.highlight_theme.style.status.warning(cx),
+            info: theme.highlight_theme.style.status.info(cx),
+            hint: theme.highlight_theme.style.status.hint(cx),
+        },
+        highlight_styles: theme.highlight_theme.clone(),
+        editor_invisible: theme.highlight_theme.style.editor_invisible,
+        editor_active_line: focused
+            .then_some(theme.highlight_theme.style.editor_active_line)
+            .flatten(),
+        editor_gutter_background: theme.highlight_theme.style.editor_gutter_background,
+        fold_icon_renderer: None,
+    }
+}
 
 enum UpdateState {
     Checking,
@@ -1335,6 +1365,7 @@ impl Paperoll {
                     px(4.)
                 };
                 let block_editor = snippet.editor.clone();
+                let style_editor = snippet.editor.clone();
 
                 v_flex()
                     .id(format!("snippet-page-{}", snippet.id))
@@ -1346,6 +1377,10 @@ impl Paperoll {
                     .pt(px(8.))
                     .pb(block_padding_bottom)
                     .cursor_text()
+                    .on_prepaint(move |_, _, cx| {
+                        let style = editor_style(focused, cx);
+                        style_editor.update(cx, |state, _| state.set_editor_style(style));
+                    })
                     .on_click(move |_, window, cx| {
                         block_editor.update(cx, |state, cx| state.focus(window, cx));
                     })
