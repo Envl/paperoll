@@ -134,6 +134,20 @@ security find-generic-password \
   -w | gh secret set --env release CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD
 ```
 
+macOS releases additionally require these `release` environment secrets:
+
+- `APPLE_CERTIFICATE_P12_BASE64`: Base64-encoded Developer ID Application
+  certificate and private key exported as PKCS #12.
+- `APPLE_CERTIFICATE_PASSWORD`: password protecting that PKCS #12 export.
+- `APPLE_API_KEY_ID`, `APPLE_API_ISSUER_ID`, and
+  `APPLE_API_PRIVATE_KEY_BASE64`: App Store Connect API credentials accepted by
+  Apple's notarization service.
+
+The release workflow imports the certificate into an ephemeral keychain, signs
+the app with hardened runtime and a secure timestamp, waits for Apple
+notarization, staples and validates the ticket, and only then creates the signed
+updater archive. The temporary keychain is deleted even when the job fails.
+
 Never rotate or discard this key casually: existing installations trust the
 public half embedded in `resources/update.pub`.
 
