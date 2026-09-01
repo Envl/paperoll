@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate tag and project version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_TYPE" == tag ]] || {
+            printf 'Run this workflow from a v* tag.\n' >&2
+            exit 1
+          }
+          version=${GITHUB_REF_NAME#v}
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            printf 'Tag must be a semantic version: %s\n' "$GITHUB_REF_NAME" >&2
+            exit 1
+          }
+          package_version=$(cargo metadata --no-deps --format-version 1 | \
+            jq -r '.packages[] | select(.name == "paperoll") | .version')
+          [[ $version == "$package_version" ]] || {
+            printf 'Tag version %s does not match Cargo.toml version %s\n' \
+              "$version" "$package_version" >&2
+            exit 1
+          }
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - artifact: macos-aarch64
+            format: app
+            platform: macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - artifact: macos-x86_64
+            format: app
+            platform: macos
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - artifact: windows-x86_64
+            format: nsis
+            platform: windows
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+          - artifact: linux-x86_64
+            format: appimage
+            platform: linux
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    environment:
+      name: release
+    env:
+      CARGO_PACKAGER_SIGN_PRIVATE_KEY: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY }}
+      CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD }}
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Enable long paths on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Select macOS SDK
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "$GITHUB_ENV"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential clang cmake libasound2-dev libfontconfig-dev \
+            libglib2.0-dev libssl-dev libva-dev libvulkan1 libwayland-dev \
+            libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev
+
+      - name: Install NSIS
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install nsis --yes --no-progress
+
+      - name: Install cargo-packager
+        shell: bash
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Build release binary
+        shell: bash
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          cargo build --release --locked --target "$BUILD_TARGET"
+
+      - name: Package and sign update
+        shell: bash
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          BUILD_FORMAT: ${{ matrix.format }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          test -n "$CARGO_PACKAGER_SIGN_PRIVATE_KEY"
+          test -n "$CARGO_PACKAGER_SIGN_PRIVATE_KEY_PASSWORD"
+          cargo packager \
+            --formats "$BUILD_FORMAT" \
+            --release \
+            --target "$BUILD_TARGET" \
+            --binaries-dir "target/$BUILD_TARGET/release" \
+            --out-dir release-assets
+
+      - name: Normalize update filenames
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+          BUILD_FORMAT: ${{ matrix.format }}
+        run: |
+          set -euo pipefail
+          mkdir -p upload
+          case "$BUILD_FORMAT" in
+            app)
+              source=$(find release-assets -maxdepth 1 -name '*.app.tar.gz' -print -quit)
+              destination="upload/Paperoll-$VERSION-$ARTIFACT.app.tar.gz"
+              ;;
+            nsis)
+              source=$(find release-assets -maxdepth 1 -name '*setup*.exe' -print -quit)
+              destination="upload/Paperoll-$VERSION-$ARTIFACT-setup.exe"
+              ;;
+            appimage)
+              source=$(find release-assets -maxdepth 1 -name '*.AppImage' -print -quit)
+              destination="upload/Paperoll-$VERSION-$ARTIFACT.AppImage"
+              ;;
+          esac
+          test -n "$source"
+          test -f "$source.sig"
+          mv "$source" "$destination"
+          mv "$source.sig" "$destination.sig"
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Paperoll-${{ matrix.artifact }}
+          path: upload/Paperoll-*
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: Paperoll-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: release-assets
+        run: sha256sum Paperoll-* | grep -v '\.sig$' > SHA256SUMS
+
+      - name: Create signed update manifest
+        run: |
+          ./scripts/create-update-manifest.sh \
+            "$VERSION" \
+            "$GITHUB_REPOSITORY" \
+            release-assets \
+            release-assets/latest.json
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Paperoll $VERSION" \
+            --generate-notes \
+            release-assets/*

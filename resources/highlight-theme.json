@@ -1,0 +1,36 @@
+{
+  "name": "Paperoll Light",
+  "appearance": "light",
+  "style": {
+    "editor.background": "#FFFFFF",
+    "editor.foreground": "#171717",
+    "editor.active_line.background": "#F5F5F5",
+    "editor.line_number": "#A3A3A3",
+    "editor.active_line_number": "#2563EB",
+    "editor.invisible": "#A3A3A366",
+    "syntax": {
+      "attribute": { "color": "#0369A1" },
+      "boolean": { "color": "#B45309" },
+      "comment": { "color": "#737373", "font_style": "italic" },
+      "comment.doc": { "color": "#737373", "font_style": "italic" },
+      "constant": { "color": "#BE185D" },
+      "constructor": { "color": "#0369A1" },
+      "function": { "color": "#C2410C" },
+      "keyword": { "color": "#6D28D9", "font_weight": 600 },
+      "number": { "color": "#B45309" },
+      "operator": { "color": "#334155" },
+      "property": { "color": "#0369A1" },
+      "punctuation": { "color": "#475569" },
+      "string": { "color": "#047857" },
+      "string.escape": { "color": "#0F766E" },
+      "string.regex": { "color": "#0F766E" },
+      "string.special": { "color": "#0F766E" },
+      "tag": { "color": "#B91C1C" },
+      "text.literal": { "color": "#047857" },
+      "title": { "color": "#1D4ED8", "font_weight": 600 },
+      "type": { "color": "#0369A1" },
+      "variable": { "color": "#171717" },
+      "variable.special": { "color": "#BE185D" }
+    }
+  }
+}

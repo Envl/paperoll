@@ -1,0 +1,13 @@
+.DS_Store
+/dist/
+/.release/
+/target/
+
+# Local configuration, credentials, and signing material.
+.env
+.env.*
+!.env.example
+*.cer
+*.key
+*.p12
+*.pem

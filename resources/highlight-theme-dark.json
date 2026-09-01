@@ -1,0 +1,36 @@
+{
+  "name": "Paperoll Dark",
+  "appearance": "dark",
+  "style": {
+    "editor.background": "#171717",
+    "editor.foreground": "#E5E7EB",
+    "editor.active_line.background": "#262626",
+    "editor.line_number": "#737373",
+    "editor.active_line_number": "#60A5FA",
+    "editor.invisible": "#73737366",
+    "syntax": {
+      "attribute": { "color": "#7DD3FC" },
+      "boolean": { "color": "#FBBF24" },
+      "comment": { "color": "#8B949E", "font_style": "italic" },
+      "comment.doc": { "color": "#8B949E", "font_style": "italic" },
+      "constant": { "color": "#F472B6" },
+      "constructor": { "color": "#7DD3FC" },
+      "function": { "color": "#FB923C" },
+      "keyword": { "color": "#C4B5FD", "font_weight": 600 },
+      "number": { "color": "#FBBF24" },
+      "operator": { "color": "#CBD5E1" },
+      "property": { "color": "#7DD3FC" },
+      "punctuation": { "color": "#94A3B8" },
+      "string": { "color": "#6EE7B7" },
+      "string.escape": { "color": "#5EEAD4" },
+      "string.regex": { "color": "#5EEAD4" },
+      "string.special": { "color": "#5EEAD4" },
+      "tag": { "color": "#FCA5A5" },
+      "text.literal": { "color": "#6EE7B7" },
+      "title": { "color": "#93C5FD", "font_weight": 600 },
+      "type": { "color": "#7DD3FC" },
+      "variable": { "color": "#E5E7EB" },
+      "variable.special": { "color": "#F472B6" }
+    }
+  }
+}
