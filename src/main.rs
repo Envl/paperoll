@@ -10,7 +10,8 @@ mod workspace;
 use std::time::Duration;
 
 use gpui::{
-    App, AppContext as _, Bounds, KeyBinding, WindowBounds, WindowKind, WindowOptions, px, size,
+    App, AppContext as _, Bounds, KeyBinding, WindowBounds, WindowKind, WindowOptions, actions, px,
+    size,
 };
 use gpui_component::{Root, TitleBar};
 use gpui_component_assets::Assets;
@@ -19,12 +20,16 @@ use workspace::{
     MoveToPreviousSnippet, NewRoll, NewSnippet, NextRoll, Paperoll, PreviousRoll,
 };
 
+actions!(paperoll_app, [Quit]);
+
 fn main() {
     gpui_platform::application()
         .with_assets(Assets)
         .run(move |cx| {
             gpui_component::init(cx);
             app_theme::sync_with_system(None, cx);
+
+            cx.on_action(|_: &Quit, cx| cx.quit());
 
             // Replace GPUI Component's secondary-enter editor binding. The stock
             // binding inserts a newline before emitting its event; Paperoll owns
@@ -43,6 +48,7 @@ fn main() {
                 KeyBinding::new("alt-shift-f", FormatSnippet, Some("Input")),
                 KeyBinding::new("secondary-t", NewRoll, None),
                 KeyBinding::new("secondary-w", CloseRoll, None),
+                KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("ctrl-tab", NextRoll, None),
                 KeyBinding::new("ctrl-shift-tab", PreviousRoll, None),
                 KeyBinding::new("up", MoveToPreviousSnippet, Some("Input")),

@@ -1143,6 +1143,11 @@ impl Paperoll {
                 } else {
                     alternate_background
                 };
+                let block_padding_bottom = if language == DetectedLanguage::Markdown {
+                    px(0.)
+                } else {
+                    px(4.)
+                };
                 let block_editor = snippet.editor.clone();
 
                 v_flex()
@@ -1152,7 +1157,8 @@ impl Paperoll {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .bg(block_background)
-                    .py(px(8.))
+                    .pt(px(8.))
+                    .pb(block_padding_bottom)
                     .cursor_text()
                     .on_click(move |_, window, cx| {
                         block_editor.update(cx, |state, cx| state.focus(window, cx));
