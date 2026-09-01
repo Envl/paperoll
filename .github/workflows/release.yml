@@ -191,6 +191,8 @@ jobs:
           notarization_archive="$RUNNER_TEMP/Paperoll-notarization.zip"
           api_key="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY_ID.p8"
           updater_archive="release-assets/Paperoll.app.tar.gz"
+          dmg_staging=$(mktemp -d "$RUNNER_TEMP/Paperoll-dmg.XXXXXX")
+          dmg="release-assets/Paperoll.dmg"
           test -d "$app"
           printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 --decode > "$api_key"
           chmod 600 "$api_key"
@@ -215,6 +217,36 @@ jobs:
           rm -f "$updater_archive" "$updater_archive.sig"
           tar -C release-assets -czf "$updater_archive" Paperoll.app
           cargo packager signer sign "$updater_archive"
+
+          ditto "$app" "$dmg_staging/Paperoll.app"
+          ln -s /Applications "$dmg_staging/Applications"
+          hdiutil create \
+            -volname Paperoll \
+            -srcfolder "$dmg_staging" \
+            -format UDZO \
+            -ov \
+            "$dmg"
+          codesign \
+            --force \
+            --timestamp \
+            --sign "$APPLE_SIGNING_IDENTITY" \
+            "$dmg"
+          codesign --verify --verbose=2 "$dmg"
+          xcrun notarytool submit "$dmg" \
+            --key "$api_key" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER_ID" \
+            --wait \
+            --timeout 1h
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          hdiutil verify "$dmg"
+          dmg_mount=$(mktemp -d "$RUNNER_TEMP/Paperoll-mounted.XXXXXX")
+          hdiutil attach -nobrowse -readonly -mountpoint "$dmg_mount" "$dmg"
+          codesign --verify --deep --strict --verbose=2 "$dmg_mount/Paperoll.app"
+          spctl --assess --type execute --verbose=4 "$dmg_mount/Paperoll.app"
+          xcrun stapler validate "$dmg_mount/Paperoll.app"
+          hdiutil detach "$dmg_mount"
 
       - name: Remove temporary macOS signing keychain
         if: runner.os == 'macOS' && always()
@@ -247,6 +279,11 @@ jobs:
           test -f "$source.sig"
           mv "$source" "$destination"
           mv "$source.sig" "$destination.sig"
+          if [[ "$BUILD_FORMAT" == app ]]; then
+            dmg="release-assets/Paperoll.dmg"
+            test -f "$dmg"
+            mv "$dmg" "upload/Paperoll-$VERSION-$ARTIFACT.dmg"
+          fi
 
       - name: Upload release artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

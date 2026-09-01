@@ -30,11 +30,12 @@ TOML, TSX, TypeScript, XML, YAML, and Zig.
 
 ## Downloads
 
-Tagged releases publish signed updater packages for macOS, Windows, and Linux on the
-[GitHub Releases page](https://github.com/Envl/paperoll/releases). Release
-packages are cryptographically signed by Paperoll's updater key. Operating-system
-signing is separate; until Developer ID and Authenticode signing are configured,
-the operating system may require an explicit first-launch approval.
+Tagged releases publish macOS disk images plus signed updater packages for macOS,
+Windows, and Linux on the [GitHub Releases page](https://github.com/Envl/paperoll/releases).
+The macOS apps and disk images are Developer ID signed and notarized by Apple.
+Updater packages are separately signed with Paperoll's updater key. Windows
+Authenticode signing is not yet configured, so Windows may require an explicit
+first-launch approval.
 
 Storage is deliberately just folders and text files. A roll/tab is a numbered
 folder and each snippet is a numbered file inside it:
