@@ -53,10 +53,10 @@ dprint-plugin-typescript = "0.96.1"
 malva = "0.16.0"
 markup_fmt = "0.27.3"
 pretty_yaml = "0.6.0"
-prettyplease = "0.2.37"
+prettyplease = "0.3.0"
 serde_json = "1"
 sqlformat = "0.5.0"
-syn = { version = "2", features = ["full", "parsing"] }
+syn = { version = "3", features = ["full", "parsing"] }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
