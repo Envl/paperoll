@@ -22,6 +22,7 @@ pub fn format_snippet(text: &str, language: DetectedLanguage) -> Result<FormatOu
         DetectedLanguage::TypeScript => format_typescript_family(text, "ts")?,
         DetectedLanguage::Tsx => format_typescript_family(text, "tsx")?,
         DetectedLanguage::Json => format_json(text)?,
+        DetectedLanguage::JsonLines => format_json_lines(text)?,
         DetectedLanguage::Markdown => format_markdown(text)?,
         DetectedLanguage::Html => format_markup(text, markup_fmt::Language::Html)?,
         DetectedLanguage::Xml => format_markup(text, markup_fmt::Language::Xml)?,
@@ -85,6 +86,22 @@ fn format_json(text: &str) -> Result<String, String> {
         .map_err(|error| error.to_string())
 }
 
+fn format_json_lines(text: &str) -> Result<String, String> {
+    let mut formatted = text
+        .lines()
+        .map(|line| {
+            serde_json::from_str::<serde_json::Value>(line)
+                .and_then(|value| serde_json::to_string(&value))
+                .map_err(|error| error.to_string())
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join("\n");
+    if text.ends_with('\n') {
+        formatted.push('\n');
+    }
+    Ok(formatted)
+}
+
 fn format_markdown(text: &str) -> Result<String, String> {
     let mut builder = dprint_plugin_markdown::configuration::ConfigurationBuilder::new();
     builder.line_width(LINE_WIDTH);
@@ -146,6 +163,13 @@ mod tests {
         assert_eq!(
             formatted("{\"items\":[1,2]}", DetectedLanguage::Json),
             "{ \"items\": [1, 2] }\n"
+        );
+        assert_eq!(
+            formatted(
+                "{ \"page\": 1 }\n{ \"page\": 2 }\n",
+                DetectedLanguage::JsonLines,
+            ),
+            "{\"page\":1}\n{\"page\":2}\n"
         );
         assert_eq!(
             formatted("-   first\n- second", DetectedLanguage::Markdown),

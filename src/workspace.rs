@@ -15,7 +15,7 @@ use gpui_component::{
     h_flex,
     input::{
         Backspace, DeleteToBeginningOfLine, Editor, EditorState, Input, InputEvent, InputState,
-        MoveDown, MoveToEnd, MoveToStart, MoveUp,
+        MoveDown, MoveToEnd, MoveToStart, MoveUp, TextDecorationCollection,
     },
     menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
     notification::Notification,
@@ -44,11 +44,20 @@ actions!(
         NextRoll,
         PreviousRoll,
         MoveToPreviousSnippet,
-        MoveToNextSnippet
+        MoveToNextSnippet,
+        MoveToDocumentStart,
+        MoveToDocumentEnd,
+        IncreaseFontSize,
+        DecreaseFontSize
     ]
 );
 
 struct FormatNotification;
+
+const MAX_AUTO_GROW_ROWS: usize = 160;
+const MIN_EDITOR_FONT_SIZE: f32 = 10.;
+const MAX_EDITOR_FONT_SIZE: f32 = 32.;
+const EDITOR_FONT_SIZE_STEP: f32 = 1.;
 
 enum UpdateState {
     Checking,
@@ -62,6 +71,7 @@ struct SnippetPage {
     editor: Entity<EditorState>,
     language: DetectedLanguage,
     language_selection: LanguageSelection,
+    jsonl_decorations: Option<TextDecorationCollection>,
     _subscription: Subscription,
 }
 
@@ -92,6 +102,12 @@ impl Paperoll {
         cx.observe_window_appearance(window, |_, window, cx| {
             crate::app_theme::sync_with_system(Some(window), cx);
             cx.notify();
+        })
+        .detach();
+        cx.observe_window_activation(window, |this, window, cx| {
+            if window.is_window_active() {
+                this.restore_focused_editor(window, cx);
+            }
         })
         .detach();
 
@@ -212,17 +228,28 @@ impl Paperoll {
     ) -> SnippetPage {
         let language_selection = LanguageSelection::from_persisted(&data.language);
         let language = language_selection.resolve(&data.text);
+        let mut jsonl_decorations = None;
         let editor = cx.new(|cx| {
-            EditorState::new(window, cx)
+            let mut state = EditorState::new(window, cx)
                 .language(language.highlighter_name())
-                .line_number(false)
+                .line_number(true)
                 .indent_guides(false)
                 .folding(false)
                 .soft_wrap(true)
                 .scroll_beyond_last_line(Some(0))
                 .cursor_surrounding_lines(Some(0))
                 .placeholder("Write anything…")
-                .default_value(data.text.clone())
+                .default_value(data.text.clone());
+            if language == DetectedLanguage::JsonLines {
+                let decorations = state.create_decorations_collection(Vec::new(), cx);
+                state.set_highlighter_factory(
+                    crate::jsonl_highlighter::factory(decorations.clone()),
+                    cx,
+                );
+                jsonl_decorations = Some(decorations);
+                state.refresh(cx);
+            }
+            state
         });
         let id = data.id;
         let subscription = cx.subscribe_in(
@@ -238,6 +265,7 @@ impl Paperoll {
             editor,
             language,
             language_selection,
+            jsonl_decorations,
             _subscription: subscription,
         }
     }
@@ -280,10 +308,26 @@ impl Paperoll {
         let snippet = &mut self.rolls[roll_ix].snippets[snippet_ix];
         if snippet.language != detected {
             snippet.language = detected;
-            editor.update(cx, |state, cx| {
+            let decorations = editor.update(cx, |state, cx| {
+                let decorations = if detected == DetectedLanguage::JsonLines {
+                    let decorations = state.create_decorations_collection(Vec::new(), cx);
+                    state.set_highlighter_factory(
+                        crate::jsonl_highlighter::factory(decorations.clone()),
+                        cx,
+                    );
+                    Some(decorations)
+                } else {
+                    None
+                };
                 state.set_highlighter(detected.highlighter_name(), cx);
                 state.refresh(cx);
+                decorations
             });
+            if detected == DetectedLanguage::JsonLines {
+                snippet.jsonl_decorations = decorations;
+            } else if let Some(decorations) = snippet.jsonl_decorations.take() {
+                decorations.clear(cx);
+            }
         }
 
         let save_result = self.persistence_enabled.then(|| {
@@ -592,6 +636,15 @@ impl Paperoll {
         Some(self.rolls[roll_ix].snippets[snippet_ix].editor.clone())
     }
 
+    fn restore_focused_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(editor) = self.focused_editor() else {
+            return;
+        };
+        window.defer(cx, move |window, cx| {
+            editor.update(cx, |state, cx| state.focus(window, cx));
+        });
+    }
+
     fn focus_adjacent_snippet(
         &mut self,
         direction: isize,
@@ -687,6 +740,117 @@ impl Paperoll {
         self.defer_adjacent_snippet_if_unchanged(snippet_id, editor, before, 1, window, cx);
     }
 
+    fn on_move_to_document_end(
+        &mut self,
+        _: &MoveToDocumentEnd,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(snippet_id) = self.focused_snippet_id else {
+            return;
+        };
+        let Some((roll_ix, snippet_ix)) = self.snippet_position(snippet_id) else {
+            return;
+        };
+        if self.rolls[roll_ix].id != self.active_roll_id {
+            return;
+        }
+        let snippet_count = self.rolls[roll_ix].snippets.len();
+
+        window.dispatch_action(Box::new(MoveToEnd), cx);
+        let scroll_handle = self.page_scroll_handle.clone();
+        let owner = cx.weak_entity();
+        window.defer(cx, move |window, cx| {
+            // Let GPUI's editor finish following the cursor before moving the
+            // enclosing roll viewport.
+            window.dispatch_action(Box::new(MoveToEnd), cx);
+            if snippet_ix + 1 < snippet_count {
+                scroll_handle.scroll_to_top_of_item(snippet_ix + 1);
+            } else {
+                scroll_handle.scroll_to_bottom();
+            }
+
+            let settled_scroll_handle = scroll_handle.clone();
+            window.defer(cx, move |window, cx| {
+                window.dispatch_action(Box::new(MoveToEnd), cx);
+                if snippet_ix + 1 < snippet_count {
+                    // The next page is now at the viewport top. Move upward by
+                    // one viewport so the focused page ends at its bottom.
+                    let mut offset = settled_scroll_handle.offset();
+                    offset.y += settled_scroll_handle.bounds().size.height;
+                    settled_scroll_handle.set_offset(offset);
+                } else {
+                    settled_scroll_handle.scroll_to_bottom();
+                }
+                _ = owner.update(cx, |_, cx| cx.notify());
+            });
+        });
+        cx.notify();
+    }
+
+    fn on_move_to_document_start(
+        &mut self,
+        _: &MoveToDocumentStart,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(snippet_id) = self.focused_snippet_id else {
+            return;
+        };
+        let Some((roll_ix, snippet_ix)) = self.snippet_position(snippet_id) else {
+            return;
+        };
+        if self.rolls[roll_ix].id != self.active_roll_id {
+            return;
+        }
+
+        window.dispatch_action(Box::new(MoveToStart), cx);
+        self.page_scroll_handle.scroll_to_top_of_item(snippet_ix);
+
+        let scroll_handle = self.page_scroll_handle.clone();
+        let owner = cx.weak_entity();
+        window.defer(cx, move |window, cx| {
+            window.dispatch_action(Box::new(MoveToStart), cx);
+            scroll_handle.scroll_to_top_of_item(snippet_ix);
+            _ = owner.update(cx, |_, cx| cx.notify());
+        });
+        cx.notify();
+    }
+
+    fn adjust_editor_font_size(&mut self, delta: f32, cx: &mut Context<Self>) {
+        let current = gpui_component::Theme::global(cx).mono_font_size.as_f32();
+        let next = (current + delta).clamp(MIN_EDITOR_FONT_SIZE, MAX_EDITOR_FONT_SIZE);
+        if next == current {
+            return;
+        }
+
+        gpui_component::Theme::global_mut(cx).mono_font_size = px(next);
+        for roll in &self.rolls {
+            for snippet in &roll.snippets {
+                snippet.editor.update(cx, |_, cx| cx.notify());
+            }
+        }
+        cx.notify();
+    }
+
+    fn on_increase_font_size(
+        &mut self,
+        _: &IncreaseFontSize,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.adjust_editor_font_size(EDITOR_FONT_SIZE_STEP, cx);
+    }
+
+    fn on_decrease_font_size(
+        &mut self,
+        _: &DecreaseFontSize,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.adjust_editor_font_size(-EDITOR_FONT_SIZE_STEP, cx);
+    }
+
     fn navigate_to_snippet(
         &mut self,
         snippet_id: Uuid,
@@ -722,10 +886,26 @@ impl Paperoll {
         let language = selection.resolve(&text);
         snippet.language_selection = selection;
         snippet.language = language;
-        snippet.editor.update(cx, |state, cx| {
+        let decorations = snippet.editor.update(cx, |state, cx| {
+            let decorations = if language == DetectedLanguage::JsonLines {
+                let decorations = state.create_decorations_collection(Vec::new(), cx);
+                state.set_highlighter_factory(
+                    crate::jsonl_highlighter::factory(decorations.clone()),
+                    cx,
+                );
+                Some(decorations)
+            } else {
+                None
+            };
             state.set_highlighter(language.highlighter_name(), cx);
             state.refresh(cx);
+            decorations
         });
+        if language == DetectedLanguage::JsonLines {
+            snippet.jsonl_decorations = decorations;
+        } else if let Some(decorations) = snippet.jsonl_decorations.take() {
+            decorations.clear(cx);
+        }
         self.save(cx);
         cx.notify();
     }
@@ -1115,15 +1295,21 @@ impl Paperoll {
         let view = cx.entity();
         let snippets = self.active_roll().into_iter().flat_map(|roll| {
             roll.snippets.iter().enumerate().map(|(ix, snippet)| {
-                let (text, editor_line_height) = {
+                let (rows, editor_line_height) = {
                     let editor = snippet.editor.read(cx);
                     let measured_line_height = editor
                         .line_height()
                         .unwrap_or_else(|| px((cx.theme().mono_font_size.as_f32() * 1.5).round()));
-                    (editor.value().to_string(), measured_line_height)
+                    (
+                        editor_visual_rows_capped(
+                            &editor.value(),
+                            characters_per_line,
+                            MAX_AUTO_GROW_ROWS,
+                        ),
+                        measured_line_height,
+                    )
                 };
-                let rows = editor_visual_rows(&text, characters_per_line) as f32;
-                let editor_height = editor_line_height * rows + Size::Medium.input_py() * 2.;
+                let editor_height = editor_line_height * rows as f32 + Size::Medium.input_py() * 2.;
                 let focused = self.focused_snippet_id == Some(snippet.id);
                 let snippet_id = snippet.id;
                 let selection = snippet.language_selection;
@@ -1253,6 +1439,7 @@ impl Paperoll {
                     .child(
                         Editor::new(&snippet.editor)
                             .h(editor_height)
+                            .ml(-Size::Medium.input_px())
                             .appearance(false)
                             .bordered(false)
                             .aria_label(format!("Page {} editor", ix + 1)),
@@ -1322,12 +1509,20 @@ impl Paperoll {
     }
 }
 
-fn editor_visual_rows(text: &str, characters_per_line: usize) -> usize {
+fn editor_visual_rows_capped(text: &str, characters_per_line: usize, maximum_rows: usize) -> usize {
     let characters_per_line = characters_per_line.max(1);
-    text.split('\n')
-        .map(|line| line.chars().count().max(1).div_ceil(characters_per_line))
-        .sum::<usize>()
-        .max(1)
+    let maximum_rows = maximum_rows.max(1);
+    let mut rows = 0;
+    for line in text.split('\n') {
+        let remaining_rows = maximum_rows - rows;
+        let maximum_characters = remaining_rows.saturating_mul(characters_per_line);
+        let characters = line.chars().take(maximum_characters).count().max(1);
+        rows += characters.div_ceil(characters_per_line);
+        if rows >= maximum_rows {
+            return maximum_rows;
+        }
+    }
+    rows.max(1)
 }
 
 fn remap_cursor(before: &str, after: &str, cursor: usize) -> usize {
@@ -1441,6 +1636,10 @@ impl Render for Paperoll {
             .on_action(cx.listener(Self::on_previous_roll))
             .on_action(cx.listener(Self::on_move_to_previous_snippet))
             .on_action(cx.listener(Self::on_move_to_next_snippet))
+            .on_action(cx.listener(Self::on_move_to_document_start))
+            .on_action(cx.listener(Self::on_move_to_document_end))
+            .on_action(cx.listener(Self::on_increase_font_size))
+            .on_action(cx.listener(Self::on_decrease_font_size))
             .on_mouse_move(cx.listener(Self::update_tab_drag))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::finish_tab_drag))
             .size_full()
@@ -1464,7 +1663,7 @@ impl Render for Paperoll {
 
 #[cfg(test)]
 mod tests {
-    use super::{concise_format_error, editor_visual_rows, next_roll_number, remap_cursor};
+    use super::{concise_format_error, editor_visual_rows_capped, next_roll_number, remap_cursor};
 
     #[test]
     fn new_roll_number_follows_the_latest_remaining_default_name() {
@@ -1475,10 +1674,14 @@ mod tests {
 
     #[test]
     fn editor_rows_match_content_and_soft_wraps_without_an_artificial_row() {
-        assert_eq!(editor_visual_rows("", 10), 1);
-        assert_eq!(editor_visual_rows("one", 10), 1);
-        assert_eq!(editor_visual_rows("one\ntwo\n", 10), 3);
-        assert_eq!(editor_visual_rows(&"x".repeat(101), 10), 11);
+        assert_eq!(editor_visual_rows_capped("", 10, usize::MAX), 1);
+        assert_eq!(editor_visual_rows_capped("one", 10, usize::MAX), 1);
+        assert_eq!(editor_visual_rows_capped("one\ntwo\n", 10, usize::MAX), 3);
+        assert_eq!(
+            editor_visual_rows_capped(&"x".repeat(101), 10, usize::MAX),
+            11
+        );
+        assert_eq!(editor_visual_rows_capped(&"x".repeat(10_000), 10, 160), 160);
     }
 
     #[test]

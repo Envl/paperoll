@@ -1,6 +1,7 @@
 mod app_theme;
 mod detection;
 mod formatting;
+mod jsonl_highlighter;
 mod model;
 mod persistence;
 mod tab_drag;
@@ -16,7 +17,8 @@ use gpui::{
 use gpui_component::{Root, TitleBar};
 use gpui_component_assets::Assets;
 use workspace::{
-    CloseRoll, DeleteEmptySnippet, DeleteEmptySnippetWithCommand, FormatSnippet, MoveToNextSnippet,
+    CloseRoll, DecreaseFontSize, DeleteEmptySnippet, DeleteEmptySnippetWithCommand, FormatSnippet,
+    IncreaseFontSize, MoveToDocumentEnd, MoveToDocumentStart, MoveToNextSnippet,
     MoveToPreviousSnippet, NewRoll, NewSnippet, NextRoll, Paperoll, PreviousRoll,
 };
 
@@ -53,6 +55,15 @@ fn main() {
                 KeyBinding::new("ctrl-shift-tab", PreviousRoll, None),
                 KeyBinding::new("up", MoveToPreviousSnippet, Some("Input")),
                 KeyBinding::new("down", MoveToNextSnippet, Some("Input")),
+                KeyBinding::new("home", MoveToDocumentStart, Some("Input")),
+                KeyBinding::new("end", MoveToDocumentEnd, Some("Input")),
+                KeyBinding::new("secondary-up", MoveToDocumentStart, Some("Input")),
+                KeyBinding::new("secondary-down", MoveToDocumentEnd, Some("Input")),
+                KeyBinding::new("cmd-up", MoveToDocumentStart, Some("Input")),
+                KeyBinding::new("cmd-down", MoveToDocumentEnd, Some("Input")),
+                KeyBinding::new("secondary-=", IncreaseFontSize, None),
+                KeyBinding::new("secondary-+", IncreaseFontSize, None),
+                KeyBinding::new("secondary--", DecreaseFontSize, None),
             ]);
 
             open_main_window(cx);

@@ -1,6 +1,6 @@
 [package]
 name = "paperoll"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 publish = false
 description = "A native scratchpad made of persistent rolls of syntax-highlighted snippets"

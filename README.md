@@ -25,7 +25,7 @@ Paperoll's block-based scratchpad model is inspired by
 - `Command-T` creates a roll and `Command-W` closes the active roll.
 
 Highlighting includes plain text, Bash, C, C++, C#, CSS, Go, HTML, Java,
-JavaScript, JSON, Kotlin, Lua, Markdown, PHP, Python, Ruby, Rust, SQL, Swift,
+JavaScript, JSON, JSON Lines, Kotlin, Lua, Markdown, PHP, Python, Ruby, Rust, SQL, Swift,
 TOML, TSX, TypeScript, XML, YAML, and Zig.
 
 ## Downloads
@@ -109,8 +109,8 @@ and Intel, Windows, and Linux on native runners, generates `latest.json` and
 checksums, and publishes a GitHub release:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 Protect release tags and the `main` branch in GitHub before publishing. Pushing

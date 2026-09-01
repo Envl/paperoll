@@ -1,3 +1,5 @@
+const MAX_AUTO_DETECTION_BYTES: usize = 64 * 1024;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DetectedLanguage {
     Bash,
@@ -10,6 +12,7 @@ pub enum DetectedLanguage {
     Java,
     JavaScript,
     Json,
+    JsonLines,
     Kotlin,
     Lua,
     Markdown,
@@ -29,7 +32,7 @@ pub enum DetectedLanguage {
 }
 
 impl DetectedLanguage {
-    pub const ALL: [Self; 26] = [
+    pub const ALL: [Self; 27] = [
         Self::Text,
         Self::Bash,
         Self::C,
@@ -41,6 +44,7 @@ impl DetectedLanguage {
         Self::Java,
         Self::JavaScript,
         Self::Json,
+        Self::JsonLines,
         Self::Kotlin,
         Self::Lua,
         Self::Markdown,
@@ -70,6 +74,7 @@ impl DetectedLanguage {
             Self::Java => "java",
             Self::JavaScript => "javascript",
             Self::Json => "json",
+            Self::JsonLines => "jsonl",
             Self::Kotlin => "kotlin",
             Self::Lua => "lua",
             Self::Markdown => "markdown",
@@ -108,6 +113,7 @@ impl DetectedLanguage {
             Self::Java => "Java",
             Self::JavaScript => "JavaScript",
             Self::Json => "JSON",
+            Self::JsonLines => "JSON Lines",
             Self::Kotlin => "Kotlin",
             Self::Lua => "Lua",
             Self::Markdown => "Markdown",
@@ -139,6 +145,7 @@ impl DetectedLanguage {
             Self::Java => "java",
             Self::JavaScript => "js",
             Self::Json => "json",
+            Self::JsonLines => "jsonl",
             Self::Kotlin => "kt",
             Self::Lua => "lua",
             Self::Markdown => "md",
@@ -228,9 +235,30 @@ impl LanguageSelection {
 }
 
 pub fn detect(text: &str) -> DetectedLanguage {
-    let trimmed = text.trim();
+    let mut inspected_end = text.len().min(MAX_AUTO_DETECTION_BYTES);
+    while !text.is_char_boundary(inspected_end) {
+        inspected_end -= 1;
+    }
+    let inspected = &text[..inspected_end];
+    let inspected = if inspected_end < text.len() {
+        inspected
+            .rsplit_once('\n')
+            .map_or(inspected, |(complete_lines, _)| complete_lines)
+    } else {
+        inspected
+    };
+    let trimmed = inspected.trim();
     if trimmed.is_empty() {
         return DetectedLanguage::Text;
+    }
+
+    let json_lines = trimmed.lines().collect::<Vec<_>>();
+    if json_lines.len() >= 2
+        && json_lines
+            .iter()
+            .all(|line| serde_json::from_str::<serde_json::Value>(line).is_ok())
+    {
+        return DetectedLanguage::JsonLines;
     }
 
     if ((trimmed.starts_with('{') && trimmed.ends_with('}'))
@@ -512,6 +540,24 @@ mod tests {
     #[test]
     fn detects_json_before_javascript() {
         assert_eq!(detect(r#"{"paper": true}"#), DetectedLanguage::Json);
+    }
+
+    #[test]
+    fn detects_json_lines_and_its_file_extension() {
+        assert_eq!(
+            detect("{\"page\":1}\n{\"page\":2}"),
+            DetectedLanguage::JsonLines
+        );
+        assert_eq!(
+            DetectedLanguage::from_file_extension("JSONL"),
+            Some(DetectedLanguage::JsonLines)
+        );
+
+        let large_json_lines = (0..10_000)
+            .map(|index| format!(r#"{{"index":{index}}}"#))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(detect(&large_json_lines), DetectedLanguage::JsonLines);
     }
 
     #[test]
