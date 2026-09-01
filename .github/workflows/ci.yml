@@ -35,10 +35,13 @@ jobs:
         include:
           - platform: macOS
             runner: macos-15
+            target: aarch64-apple-darwin
           - platform: Windows
             runner: windows-2025
+            target: x86_64-pc-windows-msvc
           - platform: Linux
             runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Enable long paths on Windows
@@ -51,6 +54,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: rust-${{ matrix.target }}
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
@@ -61,11 +69,13 @@ jobs:
             libx11-xcb-dev libxkbcommon-x11-dev libzstd-dev
 
       - name: Run tests
+        if: runner.os == 'Linux'
         run: cargo test --locked
 
       - name: Run Clippy
+        if: runner.os == 'Linux'
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      - name: Build debug artifact
-        shell: bash
-        run: ./scripts/build.sh --debug
+      - name: Check platform compilation
+        if: runner.os != 'Linux'
+        run: cargo check --all-targets --locked

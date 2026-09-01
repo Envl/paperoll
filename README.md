@@ -7,8 +7,8 @@ Paperoll is a native scratchpad built with Rust, GPUI, and
 [![CI](https://github.com/Envl/paperoll/actions/workflows/ci.yml/badge.svg)](https://github.com/Envl/paperoll/actions/workflows/ci.yml)
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
-It borrows Heynote's block-based scratchpad idea and Colerm's quiet desktop tab
-UX:
+Paperoll's block-based scratchpad model is inspired by
+[Heynote](https://github.com/heyman/heynote/):
 
 - every tab is a persistent roll of numbered snippet pages;
 - drag tabs directly to reorder rolls; closing a roll always asks for confirmation;
