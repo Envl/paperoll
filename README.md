@@ -1,8 +1,11 @@
 # Paperoll
-<img width="2356" height="1916" alt="CleanShot 2026-09-02 at 14 26 40@2x" src="https://github.com/user-attachments/assets/5dca4b24-b9fa-4faa-8c92-50b20b74a65d" />
 
 Paperoll is a native scratchpad built with Rust, GPUI, and
 [GPUI Component](https://github.com/longbridge/gpui-component).
+
+[Download for macOS (Apple Silicon)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.0-macos-aarch64.dmg) · [macOS (Intel)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.0-macos-x86_64.dmg) · [Windows](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.0-windows-x86_64-setup.exe) · [Linux](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.0-linux-x86_64.AppImage)
+
+<img width="2356" height="1916" alt="Paperoll showing syntax-highlighted snippet pages" src="https://github.com/user-attachments/assets/5dca4b24-b9fa-4faa-8c92-50b20b74a65d" />
 
 [![CI](https://github.com/Envl/paperoll/actions/workflows/ci.yml/badge.svg)](https://github.com/Envl/paperoll/actions/workflows/ci.yml)
 [![License: GPL v3+](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
