@@ -175,6 +175,11 @@ jobs:
             --binaries-dir "target/$BUILD_TARGET/release" \
             --out-dir release-assets
 
+      - name: Free build space for macOS notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        run: cargo clean
+
       - name: Sign and notarize macOS app
         if: runner.os == 'macOS'
         shell: bash
