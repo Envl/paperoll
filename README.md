@@ -1,5 +1,5 @@
 # Paperoll
-<img width="2200" height="1514" alt="CleanShot 2026-09-01 at 22 22 23@2x" src="https://github.com/user-attachments/assets/945a6e79-9be7-4d23-93ef-4827e6210476" />
+<img width="2356" height="1916" alt="CleanShot 2026-09-02 at 14 26 40@2x" src="https://github.com/user-attachments/assets/5dca4b24-b9fa-4faa-8c92-50b20b74a65d" />
 
 Paperoll is a native scratchpad built with Rust, GPUI, and
 [GPUI Component](https://github.com/longbridge/gpui-component).
