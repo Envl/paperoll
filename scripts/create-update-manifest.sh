@@ -46,8 +46,8 @@ jq -n \
     '{
         version: $version,
         platforms: {
-            "darwin-aarch64": $macos_aarch64,
-            "darwin-x86_64": $macos_x86_64,
+            "macos-aarch64": $macos_aarch64,
+            "macos-x86_64": $macos_x86_64,
             "windows-x86_64": $windows_x86_64,
             "linux-x86_64": $linux_x86_64
         }

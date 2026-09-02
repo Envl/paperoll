@@ -137,6 +137,9 @@ impl Paperoll {
         cx.observe_window_activation(window, |this, window, cx| {
             if window.is_window_active() {
                 this.restore_focused_editor(window, cx);
+                if matches!(this.update_state, UpdateState::Unavailable) {
+                    this.check_for_update(cx);
+                }
             }
         })
         .detach();
@@ -198,6 +201,7 @@ impl Paperoll {
     }
 
     fn check_for_update(&mut self, cx: &mut Context<Self>) {
+        self.update_state = UpdateState::Checking;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -206,7 +210,11 @@ impl Paperoll {
             this.update(cx, |this, cx| {
                 this.update_state = match result {
                     Ok(Some(update)) => UpdateState::Available(Box::new(update)),
-                    Ok(None) | Err(_) => UpdateState::Unavailable,
+                    Ok(None) => UpdateState::Unavailable,
+                    Err(error) => {
+                        eprintln!("Couldn’t check for updates: {error}");
+                        UpdateState::Unavailable
+                    }
                 };
                 cx.notify();
             })
@@ -225,13 +233,16 @@ impl Paperoll {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { updater::install(*update) })
+                .spawn(async move { updater::install_and_relaunch(*update) })
                 .await;
             this.update(cx, |this, cx| {
-                if let Err(error) = result {
-                    eprintln!("Couldn’t install update: {error}");
-                    this.update_state = UpdateState::Checking;
-                    this.check_for_update(cx);
+                match result {
+                    Ok(()) => cx.quit(),
+                    Err(error) => {
+                        eprintln!("Couldn’t install update: {error}");
+                        this.update_state = UpdateState::Checking;
+                        this.check_for_update(cx);
+                    }
                 }
                 cx.notify();
             })

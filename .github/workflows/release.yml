@@ -326,6 +326,12 @@ jobs:
             "$GITHUB_REPOSITORY" \
             release-assets \
             release-assets/latest.json
+          jq -e '
+            .platforms["macos-aarch64"] and
+            .platforms["macos-x86_64"] and
+            .platforms["windows-x86_64"] and
+            .platforms["linux-x86_64"]
+          ' release-assets/latest.json >/dev/null
 
       - name: Publish GitHub release
         env:
