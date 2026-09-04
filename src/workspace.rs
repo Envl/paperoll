@@ -63,8 +63,18 @@ const EDITOR_FONT_SIZE_STEP: f32 = 1.;
 fn editor_style(focused: bool, cx: &App) -> InputEditorStyle {
     let theme = cx.theme();
     InputEditorStyle {
-        foreground: theme.foreground,
-        muted_foreground: theme.muted_foreground,
+        // The pinned GPUI editor uses these two fields for gutter numbers;
+        // document text is colored separately by the Editor element's text style.
+        foreground: theme
+            .highlight_theme
+            .style
+            .editor_active_line_number
+            .unwrap_or(theme.foreground),
+        muted_foreground: theme
+            .highlight_theme
+            .style
+            .editor_line_number
+            .unwrap_or(theme.muted_foreground),
         background: theme
             .highlight_theme
             .style

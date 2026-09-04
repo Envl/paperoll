@@ -5,8 +5,8 @@
     "editor.background": "#171717",
     "editor.foreground": "#E5E7EB",
     "editor.active_line.background": "#262626",
-    "editor.line_number": "#737373",
-    "editor.active_line_number": "#60A5FA",
+    "editor.line_number": "#505050",
+    "editor.active_line_number": "#626262",
     "editor.invisible": "#73737366",
     "syntax": {
       "attribute": { "color": "#7DD3FC" },
