@@ -223,6 +223,13 @@ jobs:
           tar -C release-assets -czf "$updater_archive" Paperoll.app
           cargo packager signer sign "$updater_archive"
 
+          # The Intel runner can run out of disk space while hdiutil creates
+          # the compressed DMG. The build no longer needs Cargo's caches or
+          # the notarization zip after the app archive has been signed.
+          cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
+          rm -rf -- "$cargo_home/registry" "$cargo_home/git"
+          rm -f "$notarization_archive" "$api_key"
+
           ditto "$app" "$dmg_staging/Paperoll.app"
           ln -s /Applications "$dmg_staging/Applications"
           hdiutil create \
