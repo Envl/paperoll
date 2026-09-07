@@ -228,7 +228,7 @@ jobs:
           # the notarization zip after the app archive has been signed.
           cargo_home=${CARGO_HOME:-"$HOME/.cargo"}
           rm -rf -- "$cargo_home/registry" "$cargo_home/git"
-          rm -f "$notarization_archive" "$api_key"
+          rm -f "$notarization_archive"
 
           ditto "$app" "$dmg_staging/Paperoll.app"
           ln -s /Applications "$dmg_staging/Applications"
@@ -259,6 +259,7 @@ jobs:
           spctl --assess --type execute --verbose=4 "$dmg_mount/Paperoll.app"
           xcrun stapler validate "$dmg_mount/Paperoll.app"
           hdiutil detach "$dmg_mount"
+          rm -f "$api_key"
 
       - name: Remove temporary macOS signing keychain
         if: runner.os == 'macOS' && always()
