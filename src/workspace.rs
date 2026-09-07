@@ -55,7 +55,6 @@ actions!(
 
 struct FormatNotification;
 
-const MAX_AUTO_GROW_ROWS: usize = 160;
 const MIN_EDITOR_FONT_SIZE: f32 = 10.;
 const MAX_EDITOR_FONT_SIZE: f32 = 32.;
 const EDITOR_FONT_SIZE_STEP: f32 = 1.;
@@ -287,6 +286,7 @@ impl Paperoll {
                 .indent_guides(false)
                 .folding(false)
                 .soft_wrap(true)
+                .grow_to_content(true)
                 .scroll_beyond_last_line(Some(0))
                 .cursor_surrounding_lines(Some(0))
                 .placeholder("Write anything…")
@@ -997,11 +997,6 @@ impl Paperoll {
         }
     }
 
-    fn characters_per_line(&self) -> usize {
-        let width = self.page_scroll_handle.bounds().size.width.as_f32();
-        (((width - 48.).max(320.) / 9.5).floor() as usize).max(32)
-    }
-
     fn scroll_page_to_snippet(
         &mut self,
         snippet_ix: usize,
@@ -1342,25 +1337,9 @@ impl Paperoll {
     }
 
     fn render_pages(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let characters_per_line = self.characters_per_line();
         let view = cx.entity();
         let snippets = self.active_roll().into_iter().flat_map(|roll| {
             roll.snippets.iter().enumerate().map(|(ix, snippet)| {
-                let (rows, editor_line_height) = {
-                    let editor = snippet.editor.read(cx);
-                    let measured_line_height = editor
-                        .line_height()
-                        .unwrap_or_else(|| px((cx.theme().mono_font_size.as_f32() * 1.5).round()));
-                    (
-                        editor_visual_rows_capped(
-                            &editor.value(),
-                            characters_per_line,
-                            MAX_AUTO_GROW_ROWS,
-                        ),
-                        measured_line_height,
-                    )
-                };
-                let editor_height = editor_line_height * rows as f32 + Size::Medium.input_py() * 2.;
                 let focused = self.focused_snippet_id == Some(snippet.id);
                 let snippet_id = snippet.id;
                 let selection = snippet.language_selection;
@@ -1494,7 +1473,6 @@ impl Paperoll {
                     )
                     .child(
                         Editor::new(&snippet.editor)
-                            .h(editor_height)
                             .ml(-Size::Medium.input_px())
                             .appearance(false)
                             .bordered(false)
@@ -1563,22 +1541,6 @@ impl Paperoll {
             .child(status)
             .child(shortcuts)
     }
-}
-
-fn editor_visual_rows_capped(text: &str, characters_per_line: usize, maximum_rows: usize) -> usize {
-    let characters_per_line = characters_per_line.max(1);
-    let maximum_rows = maximum_rows.max(1);
-    let mut rows = 0;
-    for line in text.split('\n') {
-        let remaining_rows = maximum_rows - rows;
-        let maximum_characters = remaining_rows.saturating_mul(characters_per_line);
-        let characters = line.chars().take(maximum_characters).count().max(1);
-        rows += characters.div_ceil(characters_per_line);
-        if rows >= maximum_rows {
-            return maximum_rows;
-        }
-    }
-    rows.max(1)
 }
 
 fn remap_cursor(before: &str, after: &str, cursor: usize) -> usize {
@@ -1719,25 +1681,13 @@ impl Render for Paperoll {
 
 #[cfg(test)]
 mod tests {
-    use super::{concise_format_error, editor_visual_rows_capped, next_roll_number, remap_cursor};
+    use super::{concise_format_error, next_roll_number, remap_cursor};
 
     #[test]
     fn new_roll_number_follows_the_latest_remaining_default_name() {
         assert_eq!(next_roll_number(["Roll 1"]), 2);
         assert_eq!(next_roll_number(["Roll 1", "Roll 2", "Roll 3"]), 4);
         assert_eq!(next_roll_number(["Roll 1", "Roll 3", "Roll 2"]), 4);
-    }
-
-    #[test]
-    fn editor_rows_match_content_and_soft_wraps_without_an_artificial_row() {
-        assert_eq!(editor_visual_rows_capped("", 10, usize::MAX), 1);
-        assert_eq!(editor_visual_rows_capped("one", 10, usize::MAX), 1);
-        assert_eq!(editor_visual_rows_capped("one\ntwo\n", 10, usize::MAX), 3);
-        assert_eq!(
-            editor_visual_rows_capped(&"x".repeat(101), 10, usize::MAX),
-            11
-        );
-        assert_eq!(editor_visual_rows_capped(&"x".repeat(10_000), 10, 160), 160);
     }
 
     #[test]

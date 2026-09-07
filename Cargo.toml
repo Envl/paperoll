@@ -72,3 +72,11 @@ gpui = { opt-level = 3 }
 gpui_platform = { opt-level = 3 }
 ropey = { opt-level = 3 }
 tree-sitter = { opt-level = 3 }
+
+[patch."https://github.com/longbridge/gpui-component"]
+gpui-base = { path = "vendor/gpui-base" }
+
+[workspace]
+members = ["vendor/gpui-base"]
+default-members = ["."]
+resolver = "3"
