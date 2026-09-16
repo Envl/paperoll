@@ -76,7 +76,9 @@ with `rustup`, then install the native GPUI prerequisites for your platform:
 ./scripts/cargo.sh build --release
 ```
 
-Build a launchable, ad-hoc-signed macOS app bundle:
+On macOS, `cargo.sh run` builds and opens a distinct ad-hoc-signed debug app
+bundle so the window activates reliably even when the installed app is running.
+Build a launchable release bundle with:
 
 ```sh
 ./scripts/bundle.sh --release
@@ -112,8 +114,8 @@ and Intel, Windows, and Linux on native runners, generates `latest.json` and
 checksums, and publishes a GitHub release:
 
 ```sh
-git tag v0.2.1
-git push origin v0.2.1
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
 Protect release tags and the `main` branch in GitHub before publishing. Pushing

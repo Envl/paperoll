@@ -88,8 +88,9 @@ fn open_main_window(cx: &mut App) {
             })
             .expect("failed to open Paperoll window");
 
-        window.update(cx, |_, window, _| {
+        window.update(cx, |_, window, cx| {
             window.set_window_title("Paperoll");
+            cx.activate(true);
             window.activate_window();
         })?;
 

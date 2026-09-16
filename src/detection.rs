@@ -276,12 +276,7 @@ pub fn detect(text: &str) -> DetectedLanguage {
         return DetectedLanguage::Markdown;
     }
 
-    if trimmed.starts_with("#!")
-        || contains_any(
-            trimmed,
-            &["#!/bin/bash", "#!/usr/bin/env bash", "set -euo pipefail"],
-        )
-    {
+    if looks_like_bash(trimmed) {
         return DetectedLanguage::Bash;
     }
 
@@ -506,6 +501,73 @@ fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
 
+fn looks_like_bash(text: &str) -> bool {
+    if text.starts_with("#!/bin/bash")
+        || text.starts_with("#!/bin/sh")
+        || text.starts_with("#!/usr/bin/env bash")
+        || text.starts_with("#!/usr/bin/env sh")
+    {
+        return true;
+    }
+
+    let mut has_shell_options = false;
+    let mut assignments = 0;
+    let mut expansions = 0;
+    let mut commands = 0;
+
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let is_shell_options = line
+            .strip_prefix("set -")
+            .is_some_and(|flags| flags.bytes().all(|byte| byte.is_ascii_alphabetic()));
+        has_shell_options |= is_shell_options;
+        assignments += usize::from(is_shell_assignment(line));
+        expansions += usize::from(
+            line.contains("$(")
+                || line.contains("${")
+                || line.contains("\"$")
+                || line.starts_with('$'),
+        );
+        commands += usize::from(!is_shell_options && is_shell_command(line));
+    }
+
+    (has_shell_options && assignments + expansions + commands >= 1)
+        || (assignments >= 2 && expansions + commands >= 1)
+        || (commands >= 2 && expansions >= 1)
+}
+
+fn is_shell_assignment(line: &str) -> bool {
+    let Some((name, value)) = line.split_once('=') else {
+        return false;
+    };
+    !name.is_empty()
+        && name.bytes().enumerate().all(|(ix, byte)| {
+            byte == b'_' || byte.is_ascii_alphabetic() || (ix > 0 && byte.is_ascii_digit())
+        })
+        && !value.trim_start().is_empty()
+}
+
+fn is_shell_command(line: &str) -> bool {
+    let mut words = line.split_ascii_whitespace();
+    let first = words.next().unwrap_or_default();
+    let command = if first == "command" {
+        words.next().unwrap_or_default()
+    } else {
+        first
+    };
+    let valid_command = !command.is_empty()
+        && command
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b'/'));
+    let shell_arguments = line.contains('$')
+        || line.contains(" | ")
+        || line.contains(" >")
+        || line.contains(" <")
+        || line.contains(" && ")
+        || line.contains(" || ")
+        || words.any(|word| word.starts_with('-'));
+    valid_command && shell_arguments
+}
+
 fn lines_match(text: &str, predicate: impl Fn(&str) -> bool) -> usize {
     text.lines().filter(|line| predicate(line)).count()
 }
@@ -574,6 +636,26 @@ mod tests {
         assert_eq!(
             detect("def hello():\n    print('hi')"),
             DetectedLanguage::Python
+        );
+    }
+
+    #[test]
+    fn detects_bash_without_a_shebang_or_pipefail() {
+        let source = r#"set -e
+LIGHT='/Users/envl/Downloads/light.png'
+DARK='/Users/envl/Downloads/dark.png'
+OUT='/Users/envl/Downloads/wallpaper.heic'
+sips -g pixelWidth -g pixelHeight "$LIGHT" "$DARK"
+TMP_DIR="$(mktemp -d /tmp/macos-wallpaper.XXXXXX)"
+cp "$LIGHT" "$TMP_DIR/light.png"
+heif-enc -L "$TMP_DIR/light.png" "$TMP_DIR/dark.png" -o "$OUT"
+heif-info "$OUT" | sed -n '1,80p'
+ls -lh "$OUT""#;
+
+        assert_eq!(detect(source), DetectedLanguage::Bash);
+        assert_eq!(
+            detect("set -e\nThis is ordinary prose."),
+            DetectedLanguage::Text
         );
     }
 

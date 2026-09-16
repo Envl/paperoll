@@ -23,16 +23,25 @@ done
 
 script_directory=${0:A:h}
 project_directory=${script_directory:h}
-bundle_path="$project_directory/target/$profile/Paperoll.app"
+if [[ "$profile" == "debug" ]]; then
+    bundle_path="$project_directory/target/$profile/PaperollDebug.app"
+else
+    bundle_path="$project_directory/target/$profile/Paperoll.app"
+fi
 
 "$script_directory/cargo.sh" build "${cargo_args[@]}"
 install -d "$bundle_path/Contents/MacOS" "$bundle_path/Contents/Resources"
 install -m 755 "$project_directory/target/$profile/paperoll" "$bundle_path/Contents/MacOS/Paperoll"
 install -m 644 "$project_directory/resources/Info.plist" "$bundle_path/Contents/Info.plist"
 install -m 644 "$project_directory/resources/Paperoll.icns" "$bundle_path/Contents/Resources/Paperoll.icns"
+if [[ "$profile" == "debug" ]]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Paperoll Debug" "$bundle_path/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleName PaperollDebug" "$bundle_path/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.paperoll.app.debug" "$bundle_path/Contents/Info.plist"
+fi
 codesign --force --sign - "$bundle_path"
 
 print "$bundle_path"
 if $should_run; then
-    open "$bundle_path"
+    open -n -W "$bundle_path"
 fi

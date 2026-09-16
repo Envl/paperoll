@@ -8,8 +8,8 @@ use gpui::{
 };
 use gpui_base::input::{DiagnosticColors, InputEditorStyle};
 use gpui_component::{
-    ActiveTheme as _, ElementExt as _, Icon, IconName, Root, Sizable as _, Size, TitleBar,
-    WindowExt as _,
+    ActiveTheme as _, ElementExt as _, Icon, IconName, IndexPath, Root, Sizable as _, Size,
+    TitleBar, WindowExt as _,
     animation::ease_out_cubic,
     button::{Button, ButtonVariants as _},
     dialog::DialogButtonProps,
@@ -18,8 +18,10 @@ use gpui_component::{
         Backspace, DeleteToBeginningOfLine, Editor, EditorState, Input, InputEvent, InputState,
         MoveDown, MoveToEnd, MoveToStart, MoveUp, TextDecorationCollection,
     },
-    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, PopupMenuItem},
     notification::Notification,
+    searchable_list::SearchableVec,
+    select::{Select, SelectEvent, SelectState},
     v_flex,
 };
 use uuid::Uuid;
@@ -108,10 +110,12 @@ enum UpdateState {
 struct SnippetPage {
     id: Uuid,
     editor: Entity<EditorState>,
+    language_select: Entity<SelectState<SearchableVec<SharedString>>>,
     language: DetectedLanguage,
     language_selection: LanguageSelection,
     jsonl_decorations: Option<TextDecorationCollection>,
-    _subscription: Subscription,
+    _editor_subscription: Subscription,
+    _language_subscription: Subscription,
 }
 
 struct Roll {
@@ -124,6 +128,7 @@ pub struct Paperoll {
     rolls: Vec<Roll>,
     active_roll_id: Uuid,
     focused_snippet_id: Option<Uuid>,
+    focused_snippet_by_roll: HashMap<Uuid, Uuid>,
     focus_handle: FocusHandle,
     page_scroll_handle: ScrollHandle,
     navigator_scroll_handle: ScrollHandle,
@@ -179,11 +184,15 @@ impl Paperoll {
             .find(|roll| roll.id == active_roll_id)
             .and_then(|roll| roll.snippets.first())
             .map(|snippet| snippet.id);
+        let focused_snippet_by_roll = focused_snippet_id
+            .map(|snippet_id| HashMap::from([(active_roll_id, snippet_id)]))
+            .unwrap_or_default();
 
         let mut paperoll = Self {
             rolls,
             active_roll_id,
             focused_snippet_id,
+            focused_snippet_by_roll,
             focus_handle: cx.focus_handle(),
             page_scroll_handle: ScrollHandle::new(),
             navigator_scroll_handle: ScrollHandle::new(),
@@ -303,21 +312,45 @@ impl Paperoll {
             state
         });
         let id = data.id;
-        let subscription = cx.subscribe_in(
+        let editor_subscription = cx.subscribe_in(
             &editor,
             window,
             move |this, editor, event: &InputEvent, window, cx| {
                 this.on_snippet_event(id, editor, event, window, cx);
             },
         );
+        let selected_index = language_selection_index(language_selection);
+        let language_select = cx.new(|cx| {
+            SelectState::new(
+                language_options(language),
+                Some(IndexPath::new(selected_index)),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let language_subscription = cx.subscribe_in(
+            &language_select,
+            window,
+            move |this, _, event: &SelectEvent<SearchableVec<SharedString>>, _, cx| {
+                let SelectEvent::Confirm(Some(value)) = event else {
+                    return;
+                };
+                if let Some(selection) = language_selection_from_label(value) {
+                    this.set_snippet_language(id, selection, cx);
+                }
+            },
+        );
 
         SnippetPage {
             id,
             editor,
+            language_select,
             language,
             language_selection,
             jsonl_decorations,
-            _subscription: subscription,
+            _editor_subscription: editor_subscription,
+            _language_subscription: language_subscription,
         }
     }
 
@@ -326,14 +359,14 @@ impl Paperoll {
         snippet_id: Uuid,
         editor: &Entity<EditorState>,
         event: &InputEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match event {
-            InputEvent::Change => self.on_snippet_changed(snippet_id, editor, cx),
+            InputEvent::Change => self.on_snippet_changed(snippet_id, editor, window, cx),
             InputEvent::Focus => {
-                self.focused_snippet_id = Some(snippet_id);
                 if let Some((_, snippet_ix)) = self.snippet_position(snippet_id) {
+                    self.remember_focused_snippet(snippet_id);
                     self.navigator_scroll_handle.scroll_to_item(snippet_ix);
                 }
                 cx.notify();
@@ -346,6 +379,7 @@ impl Paperoll {
         &mut self,
         snippet_id: Uuid,
         editor: &Entity<EditorState>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let text = editor.read(cx).value().to_string();
@@ -359,6 +393,15 @@ impl Paperoll {
         let snippet = &mut self.rolls[roll_ix].snippets[snippet_ix];
         if snippet.language != detected {
             snippet.language = detected;
+            let selection = snippet.language_selection;
+            snippet.language_select.update(cx, |select, cx| {
+                select.set_items(language_options(detected), window, cx);
+                select.set_selected_index(
+                    Some(IndexPath::new(language_selection_index(selection))),
+                    window,
+                    cx,
+                );
+            });
             let decorations = editor.update(cx, |state, cx| {
                 let decorations = if detected == DetectedLanguage::JsonLines {
                     let decorations = state.create_decorations_collection(Vec::new(), cx);
@@ -458,7 +501,8 @@ impl Paperoll {
             .saturating_sub(1)
             .min(self.rolls[roll_ix].snippets.len() - 1);
         let editor = self.rolls[roll_ix].snippets[focus_ix].editor.clone();
-        self.focused_snippet_id = Some(self.rolls[roll_ix].snippets[focus_ix].id);
+        let focused_snippet_id = self.rolls[roll_ix].snippets[focus_ix].id;
+        self.remember_focused_snippet(focused_snippet_id);
         self.scroll_page_to_snippet(focus_ix, window, cx);
         self.navigator_scroll_handle.scroll_to_item(focus_ix);
         editor.update(cx, |state, cx| state.focus(window, cx));
@@ -483,7 +527,7 @@ impl Paperoll {
         let id = snippet.id;
         let editor = snippet.editor.clone();
         self.rolls[roll_ix].snippets.insert(insertion_ix, snippet);
-        self.focused_snippet_id = Some(id);
+        self.remember_focused_snippet(id);
         self.scroll_page_to_snippet(insertion_ix, window, cx);
         self.navigator_scroll_handle.scroll_to_item(insertion_ix);
         editor.update(cx, |state, cx| state.focus(window, cx));
@@ -498,8 +542,9 @@ impl Paperoll {
         let roll = Self::build_roll(data, window, cx);
         self.active_roll_id = roll.id;
         let editor = roll.snippets[0].editor.clone();
-        self.focused_snippet_id = Some(roll.snippets[0].id);
+        let focused_snippet_id = roll.snippets[0].id;
         self.rolls.push(roll);
+        self.remember_focused_snippet(focused_snippet_id);
         self.scroll_page_to_snippet(0, window, cx);
         self.navigator_scroll_handle.scroll_to_item(0);
         editor.update(cx, |state, cx| state.focus(window, cx));
@@ -513,17 +558,30 @@ impl Paperoll {
         };
 
         self.rolls.remove(roll_ix);
+        self.focused_snippet_by_roll.remove(&roll_id);
         if self.rolls.is_empty() {
             self.rolls
                 .push(Self::build_roll(RollData::empty(1), window, cx));
         }
         let active_ix = roll_ix.min(self.rolls.len() - 1);
         self.active_roll_id = self.rolls[active_ix].id;
-        let first = &self.rolls[active_ix].snippets[0];
-        self.focused_snippet_id = Some(first.id);
-        let editor = first.editor.clone();
-        self.scroll_page_to_snippet(0, window, cx);
-        self.navigator_scroll_handle.scroll_to_item(0);
+        let remembered_snippet_id = self
+            .focused_snippet_by_roll
+            .get(&self.active_roll_id)
+            .copied();
+        let focus_ix = remembered_snippet_id
+            .and_then(|id| {
+                self.rolls[active_ix]
+                    .snippets
+                    .iter()
+                    .position(|snippet| snippet.id == id)
+            })
+            .unwrap_or(0);
+        let focused_snippet_id = self.rolls[active_ix].snippets[focus_ix].id;
+        let editor = self.rolls[active_ix].snippets[focus_ix].editor.clone();
+        self.remember_focused_snippet(focused_snippet_id);
+        self.scroll_page_to_snippet(focus_ix, window, cx);
+        self.navigator_scroll_handle.scroll_to_item(focus_ix);
         editor.update(cx, |state, cx| state.focus(window, cx));
         self.save(cx);
         cx.notify();
@@ -637,14 +695,19 @@ impl Paperoll {
             return;
         }
         self.active_roll_id = roll_id;
-        let first = self
-            .active_roll()
-            .and_then(|roll| roll.snippets.first())
-            .map(|snippet| (snippet.id, snippet.editor.clone()));
-        if let Some((id, editor)) = first {
-            self.focused_snippet_id = Some(id);
-            self.scroll_page_to_snippet(0, window, cx);
-            self.navigator_scroll_handle.scroll_to_item(0);
+        let remembered_snippet_id = self.focused_snippet_by_roll.get(&roll_id).copied();
+        let target = self.active_roll().and_then(|roll| {
+            let snippet_ix = remembered_snippet_id
+                .and_then(|id| roll.snippets.iter().position(|snippet| snippet.id == id))
+                .unwrap_or(0);
+            roll.snippets
+                .get(snippet_ix)
+                .map(|snippet| (snippet_ix, snippet.id, snippet.editor.clone()))
+        });
+        if let Some((snippet_ix, id, editor)) = target {
+            self.remember_focused_snippet(id);
+            self.scroll_page_to_snippet(snippet_ix, window, cx);
+            self.navigator_scroll_handle.scroll_to_item(snippet_ix);
             editor.update(cx, |state, cx| state.focus(window, cx));
         }
         cx.notify();
@@ -681,10 +744,25 @@ impl Paperoll {
     }
 
     fn focused_editor(&self) -> Option<Entity<EditorState>> {
-        let (roll_ix, snippet_ix) = self
-            .focused_snippet_id
-            .and_then(|snippet_id| self.snippet_position(snippet_id))?;
+        let snippet_id = self
+            .focused_snippet_by_roll
+            .get(&self.active_roll_id)
+            .copied()
+            .or(self.focused_snippet_id)?;
+        let (roll_ix, snippet_ix) = self.snippet_position(snippet_id)?;
+        if self.rolls[roll_ix].id != self.active_roll_id {
+            return None;
+        }
         Some(self.rolls[roll_ix].snippets[snippet_ix].editor.clone())
+    }
+
+    fn remember_focused_snippet(&mut self, snippet_id: Uuid) {
+        let Some((roll_ix, _)) = self.snippet_position(snippet_id) else {
+            return;
+        };
+        self.focused_snippet_id = Some(snippet_id);
+        self.focused_snippet_by_roll
+            .insert(self.rolls[roll_ix].id, snippet_id);
     }
 
     fn restore_focused_editor(&self, window: &mut Window, cx: &mut Context<Self>) {
@@ -915,7 +993,7 @@ impl Paperoll {
             return;
         }
 
-        self.focused_snippet_id = Some(snippet_id);
+        self.remember_focused_snippet(snippet_id);
         self.scroll_page_to_snippet(snippet_ix, window, cx);
         self.navigator_scroll_handle.scroll_to_item(snippet_ix);
         let editor = self.rolls[roll_ix].snippets[snippet_ix].editor.clone();
@@ -1337,18 +1415,10 @@ impl Paperoll {
     }
 
     fn render_pages(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let view = cx.entity();
         let snippets = self.active_roll().into_iter().flat_map(|roll| {
             roll.snippets.iter().enumerate().map(|(ix, snippet)| {
                 let focused = self.focused_snippet_id == Some(snippet.id);
-                let snippet_id = snippet.id;
-                let selection = snippet.language_selection;
                 let language = snippet.language;
-                let language_label = match selection {
-                    LanguageSelection::Auto => format!("Auto · {}", language.label()),
-                    LanguageSelection::Explicit(language) => language.label().to_string(),
-                };
-                let menu_view = view.clone();
                 let alternate_background = cx.theme().background.blend(
                     cx.theme()
                         .foreground
@@ -1406,69 +1476,15 @@ impl Paperoll {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(
-                                Button::new(format!("language-{snippet_id}"))
+                                Select::new(&snippet.language_select)
                                     .xsmall()
-                                    .ghost()
-                                    .compact()
-                                    .label(language_label)
-                                    .dropdown_caret(true)
-                                    .dropdown_menu(move |menu, window, _| {
-                                        let auto_view = menu_view.clone();
-                                        let menu = menu
-                                            .scrollable(true)
-                                            .max_h(px(420.))
-                                            .min_w(px(190.))
-                                            .label("Highlight language")
-                                            .item(
-                                                PopupMenuItem::new(format!(
-                                                    "Auto · {}",
-                                                    language.label()
-                                                ))
-                                                .checked(matches!(
-                                                    selection,
-                                                    LanguageSelection::Auto
-                                                ))
-                                                .on_click(window.listener_for(
-                                                    &auto_view,
-                                                    move |this, _, _, cx| {
-                                                        this.set_snippet_language(
-                                                            snippet_id,
-                                                            LanguageSelection::Auto,
-                                                            cx,
-                                                        );
-                                                    },
-                                                )),
-                                            )
-                                            .separator();
-
-                                        DetectedLanguage::ALL.into_iter().fold(
-                                            menu,
-                                            |menu, candidate| {
-                                                let item_view = menu_view.clone();
-                                                menu.item(
-                                                    PopupMenuItem::new(candidate.label())
-                                                        .checked(
-                                                            selection
-                                                                == LanguageSelection::Explicit(
-                                                                    candidate,
-                                                                ),
-                                                        )
-                                                        .on_click(window.listener_for(
-                                                            &item_view,
-                                                            move |this, _, _, cx| {
-                                                                this.set_snippet_language(
-                                                                    snippet_id,
-                                                                    LanguageSelection::Explicit(
-                                                                        candidate,
-                                                                    ),
-                                                                    cx,
-                                                                );
-                                                            },
-                                                        )),
-                                                )
-                                            },
-                                        )
-                                    }),
+                                    .w_auto()
+                                    .flex_none()
+                                    .appearance(false)
+                                    .accessibility_label("Highlight language")
+                                    .search_placeholder("Search languages…")
+                                    .menu_width(px(210.))
+                                    .menu_max_h(px(420.)),
                             ),
                     )
                     .child(
@@ -1485,6 +1501,7 @@ impl Paperoll {
             .id("paperoll-pages")
             .h_full()
             .min_h_0()
+            .min_w_0()
             .flex_1()
             .overflow_y_scroll()
             .track_scroll(&self.page_scroll_handle)
@@ -1541,6 +1558,37 @@ impl Paperoll {
             .child(status)
             .child(shortcuts)
     }
+}
+
+fn language_options(detected: DetectedLanguage) -> SearchableVec<SharedString> {
+    let mut options = Vec::with_capacity(DetectedLanguage::ALL.len() + 1);
+    options.push(SharedString::from(format!("Auto · {}", detected.label())));
+    options.extend(
+        DetectedLanguage::ALL
+            .into_iter()
+            .map(|language| SharedString::from(language.label())),
+    );
+    SearchableVec::new(options)
+}
+
+fn language_selection_index(selection: LanguageSelection) -> usize {
+    match selection {
+        LanguageSelection::Auto => 0,
+        LanguageSelection::Explicit(selected) => DetectedLanguage::ALL
+            .iter()
+            .position(|language| *language == selected)
+            .map_or(0, |index| index + 1),
+    }
+}
+
+fn language_selection_from_label(label: &str) -> Option<LanguageSelection> {
+    if label.starts_with("Auto · ") {
+        return Some(LanguageSelection::Auto);
+    }
+    DetectedLanguage::ALL
+        .into_iter()
+        .find(|language| language.label() == label)
+        .map(LanguageSelection::Explicit)
 }
 
 fn remap_cursor(before: &str, after: &str, cursor: usize) -> usize {
@@ -1681,13 +1729,35 @@ impl Render for Paperoll {
 
 #[cfg(test)]
 mod tests {
-    use super::{concise_format_error, next_roll_number, remap_cursor};
+    use super::{
+        concise_format_error, language_selection_from_label, language_selection_index,
+        next_roll_number, remap_cursor,
+    };
+    use crate::detection::{DetectedLanguage, LanguageSelection};
 
     #[test]
     fn new_roll_number_follows_the_latest_remaining_default_name() {
         assert_eq!(next_roll_number(["Roll 1"]), 2);
         assert_eq!(next_roll_number(["Roll 1", "Roll 2", "Roll 3"]), 4);
         assert_eq!(next_roll_number(["Roll 1", "Roll 3", "Roll 2"]), 4);
+    }
+
+    #[test]
+    fn language_picker_values_map_to_stable_selections() {
+        assert_eq!(
+            language_selection_from_label("Auto · Bash"),
+            Some(LanguageSelection::Auto)
+        );
+        assert_eq!(
+            language_selection_from_label("TypeScript"),
+            Some(LanguageSelection::Explicit(DetectedLanguage::TypeScript))
+        );
+        assert_eq!(language_selection_from_label("Unknown"), None);
+        assert_eq!(language_selection_index(LanguageSelection::Auto), 0);
+        assert_eq!(
+            language_selection_index(LanguageSelection::Explicit(DetectedLanguage::Text)),
+            1
+        );
     }
 
     #[test]
