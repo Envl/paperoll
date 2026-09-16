@@ -1476,15 +1476,15 @@ impl Paperoll {
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(
-                                Select::new(&snippet.language_select)
-                                    .xsmall()
-                                    .w_auto()
-                                    .flex_none()
-                                    .appearance(false)
-                                    .accessibility_label("Highlight language")
-                                    .search_placeholder("Search languages…")
-                                    .menu_width(px(210.))
-                                    .menu_max_h(px(420.)),
+                                div().w_auto().flex_none().child(
+                                    Select::new(&snippet.language_select)
+                                        .xsmall()
+                                        .appearance(false)
+                                        .accessibility_label("Highlight language")
+                                        .search_placeholder("Search languages…")
+                                        .menu_width(px(210.))
+                                        .menu_max_h(px(420.)),
+                                ),
                             ),
                     )
                     .child(

@@ -3,7 +3,7 @@
 Paperoll is a native scratchpad built with Rust, GPUI, and
 [GPUI Component](https://github.com/longbridge/gpui-component).
 
-[Download for macOS (Apple Silicon)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.1-macos-aarch64.dmg) · [macOS (Intel)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.1-macos-x86_64.dmg) · [Windows](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.1-windows-x86_64-setup.exe) · [Linux](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.1-linux-x86_64.AppImage)
+[Download for macOS (Apple Silicon)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.3-macos-aarch64.dmg) · [macOS (Intel)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.3-macos-x86_64.dmg) · [Windows](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.3-windows-x86_64-setup.exe) · [Linux](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.3-linux-x86_64.AppImage)
 
 <img width="2356" height="1916" alt="Paperoll showing syntax-highlighted snippet pages" src="https://github.com/user-attachments/assets/5dca4b24-b9fa-4faa-8c92-50b20b74a65d" />
 
@@ -114,8 +114,8 @@ and Intel, Windows, and Linux on native runners, generates `latest.json` and
 checksums, and publishes a GitHub release:
 
 ```sh
-git tag v0.2.2
-git push origin v0.2.2
+git tag v0.2.3
+git push origin v0.2.3
 ```
 
 Protect release tags and the `main` branch in GitHub before publishing. Pushing
