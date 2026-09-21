@@ -1480,6 +1480,7 @@ impl Paperoll {
                                     Select::new(&snippet.language_select)
                                         .xsmall()
                                         .appearance(false)
+                                        .text_color(cx.theme().muted_foreground.opacity(0.6))
                                         .accessibility_label("Highlight language")
                                         .search_placeholder("Search languages…")
                                         .menu_width(px(210.))
