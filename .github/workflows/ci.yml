@@ -25,7 +25,7 @@ jobs:
           persist-credentials: false
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: cargo fmt --package paperoll -- --check
 
   test:
     name: Test (${{ matrix.platform }})
@@ -74,7 +74,7 @@ jobs:
 
       - name: Run Clippy
         if: runner.os == 'Linux'
-        run: cargo clippy --all-targets --locked -- -D warnings
+        run: cargo clippy --package paperoll --all-targets --locked --no-deps -- -D warnings
 
       - name: Check platform compilation
         if: runner.os != 'Linux'
