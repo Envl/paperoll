@@ -61,21 +61,32 @@ const MIN_EDITOR_FONT_SIZE: f32 = 10.;
 const MAX_EDITOR_FONT_SIZE: f32 = 32.;
 const EDITOR_FONT_SIZE_STEP: f32 = 1.;
 
-fn editor_style(focused: bool, cx: &App) -> InputEditorStyle {
+fn editor_style(focused: bool, block_background: gpui::Hsla, cx: &App) -> InputEditorStyle {
     let theme = cx.theme();
+    let gutter_color = |color| {
+        if focused {
+            color
+        } else {
+            gpui::transparent_black()
+        }
+    };
     InputEditorStyle {
         // The pinned GPUI editor uses these two fields for gutter numbers;
         // document text is colored separately by the Editor element's text style.
-        foreground: theme
-            .highlight_theme
-            .style
-            .editor_active_line_number
-            .unwrap_or(theme.foreground),
-        muted_foreground: theme
-            .highlight_theme
-            .style
-            .editor_line_number
-            .unwrap_or(theme.muted_foreground),
+        foreground: gutter_color(
+            theme
+                .highlight_theme
+                .style
+                .editor_active_line_number
+                .unwrap_or(theme.foreground),
+        ),
+        muted_foreground: gutter_color(
+            theme
+                .highlight_theme
+                .style
+                .editor_line_number
+                .unwrap_or(theme.muted_foreground),
+        ),
         background: theme
             .highlight_theme
             .style
@@ -95,7 +106,7 @@ fn editor_style(focused: bool, cx: &App) -> InputEditorStyle {
         editor_active_line: focused
             .then_some(theme.highlight_theme.style.editor_active_line)
             .flatten(),
-        editor_gutter_background: theme.highlight_theme.style.editor_gutter_background,
+        editor_gutter_background: Some(block_background),
         fold_icon_renderer: None,
     }
 }
@@ -1444,11 +1455,11 @@ impl Paperoll {
                     .border_b_1()
                     .border_color(cx.theme().border)
                     .bg(block_background)
-                    .pt(px(8.))
+                    .pt(px(4.))
                     .pb(block_padding_bottom)
                     .cursor_text()
                     .on_prepaint(move |_, _, cx| {
-                        let style = editor_style(focused, cx);
+                        let style = editor_style(focused, block_background, cx);
                         style_editor.update(cx, |state, _| state.set_editor_style(style));
                     })
                     .on_click(move |_, window, cx| {
@@ -1458,7 +1469,7 @@ impl Paperoll {
                         div()
                             .absolute()
                             .left(px(5.))
-                            .top(px(17.))
+                            .top(px(9.))
                             .w(px(6.))
                             .h(px(6.))
                             .rounded_full()
@@ -1468,17 +1479,19 @@ impl Paperoll {
                                 gpui::transparent_black()
                             }),
                     )
-                    .child(
-                        h_flex()
-                            // GPUI Component's editor reserves 10pt input padding and
-                            // a 10pt code gutter. The compact picker supplies 4pt itself.
-                            .pl(px(16.))
+                    .child({
+                        let header = h_flex()
+                            .mb(-px(6.))
+                            .pl(px(12.))
                             .text_xs()
                             .text_color(cx.theme().muted_foreground)
                             .child(
                                 div().w_auto().flex_none().child(
                                     Select::new(&snippet.language_select)
                                         .xsmall()
+                                        .h(px(16.))
+                                        .py_0()
+                                        .text_size(px(10.))
                                         .appearance(false)
                                         .text_color(cx.theme().muted_foreground.opacity(0.6))
                                         .accessibility_label("Highlight language")
@@ -1486,10 +1499,12 @@ impl Paperoll {
                                         .menu_width(px(210.))
                                         .menu_max_h(px(420.)),
                                 ),
-                            ),
-                    )
+                            );
+                        if focused { header } else { header.invisible() }
+                    })
                     .child(
                         Editor::new(&snippet.editor)
+                            .pt_0()
                             .ml(-Size::Medium.input_px())
                             .appearance(false)
                             .bordered(false)
