@@ -5005,7 +5005,7 @@ dependencies = [
 
 [[package]]
 name = "paperoll"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "anyhow",
  "cargo-packager-updater",

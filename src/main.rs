@@ -18,8 +18,9 @@ use gpui_component::{Root, TitleBar};
 use gpui_component_assets::Assets;
 use workspace::{
     CloseRoll, DecreaseFontSize, DeleteEmptySnippet, DeleteEmptySnippetWithCommand, FormatSnippet,
-    IncreaseFontSize, MoveToDocumentEnd, MoveToDocumentStart, MoveToNextSnippet,
-    MoveToPreviousSnippet, NewRoll, NewSnippet, NextRoll, Paperoll, PreviousRoll,
+    IncreaseFontSize, MoveDownOrNextSnippet, MoveToDocumentEnd, MoveToDocumentStart,
+    MoveToNextSnippet, MoveToPreviousSnippet, MoveUpOrPreviousSnippet, NewRoll, NewSnippet,
+    NextRoll, Paperoll, PreviousRoll,
 };
 
 actions!(paperoll_app, [Quit]);
@@ -53,8 +54,14 @@ fn main() {
                 KeyBinding::new("secondary-q", Quit, None),
                 KeyBinding::new("ctrl-tab", NextRoll, None),
                 KeyBinding::new("ctrl-shift-tab", PreviousRoll, None),
-                KeyBinding::new("up", MoveToPreviousSnippet, Some("Input")),
-                KeyBinding::new("down", MoveToNextSnippet, Some("Input")),
+                KeyBinding::new("up", MoveUpOrPreviousSnippet, Some("Input")),
+                KeyBinding::new("down", MoveDownOrNextSnippet, Some("Input")),
+                KeyBinding::new(
+                    "pageup",
+                    MoveToPreviousSnippet,
+                    Some("SnippetEditor > Input"),
+                ),
+                KeyBinding::new("pagedown", MoveToNextSnippet, Some("SnippetEditor > Input")),
                 KeyBinding::new("home", MoveToDocumentStart, Some("Input")),
                 KeyBinding::new("end", MoveToDocumentEnd, Some("Input")),
                 KeyBinding::new("secondary-up", MoveToDocumentStart, Some("Input")),

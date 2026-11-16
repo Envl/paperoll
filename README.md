@@ -3,7 +3,7 @@
 Paperoll is a native scratchpad built with Rust, GPUI, and
 [GPUI Component](https://github.com/longbridge/gpui-component).
 
-[Download for macOS (Apple Silicon)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.5-macos-aarch64.dmg) · [macOS (Intel)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.5-macos-x86_64.dmg) · [Windows](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.5-windows-x86_64-setup.exe) · [Linux](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.5-linux-x86_64.AppImage)
+[Download for macOS (Apple Silicon)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.6-macos-aarch64.dmg) · [macOS (Intel)](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.6-macos-x86_64.dmg) · [Windows](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.6-windows-x86_64-setup.exe) · [Linux](https://github.com/Envl/paperoll/releases/latest/download/Paperoll-0.2.6-linux-x86_64.AppImage)
 
 <img width="2356" height="1916" alt="Paperoll showing syntax-highlighted snippet pages" src="https://github.com/user-attachments/assets/5dca4b24-b9fa-4faa-8c92-50b20b74a65d" />
 
@@ -19,6 +19,8 @@ Paperoll's block-based scratchpad model is inspired by
 - snippets grow with their text; the roll scrolls instead of individual editors;
 - adjacent snippets alternate neutral backgrounds in light and dark mode, with a
   left-edge marker identifying the active block;
+- press Page Up or Page Down to switch snippets; Up and Down also switch at the
+  start or end of a snippet;
 - use the independent number rail to see the active page and jump to any snippet;
 - clear a page, then press Backspace once more to discard that empty page;
 - syntax is detected per page and highlighted with Tree-sitter, with a per-snippet
@@ -114,8 +116,8 @@ and Intel, Windows, and Linux on native runners, generates `latest.json` and
 checksums, and publishes a GitHub release:
 
 ```sh
-git tag v0.2.5
-git push origin v0.2.5
+git tag v0.2.6
+git push origin v0.2.6
 ```
 
 Protect release tags and the `main` branch in GitHub before publishing. Pushing

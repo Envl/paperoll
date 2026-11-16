@@ -3,7 +3,7 @@ use std::{collections::HashMap, ops::Range, time::Duration};
 use gpui::{
     Animation, AnimationExt as _, App, AppContext as _, Context, Entity, FocusHandle, Focusable,
     InteractiveElement as _, IntoElement, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, ParentElement as _, Render, ScrollHandle, SharedString,
+    MouseUpEvent, ParentElement as _, Pixels, Render, ScrollHandle, SharedString,
     StatefulInteractiveElement, Styled as _, Subscription, Window, actions, deferred, div, px,
 };
 use gpui_base::input::{DiagnosticColors, InputEditorStyle};
@@ -46,6 +46,8 @@ actions!(
         DeleteEmptySnippetWithCommand,
         NextRoll,
         PreviousRoll,
+        MoveUpOrPreviousSnippet,
+        MoveDownOrNextSnippet,
         MoveToPreviousSnippet,
         MoveToNextSnippet,
         MoveToDocumentStart,
@@ -141,6 +143,7 @@ pub struct Paperoll {
     focused_snippet_id: Option<Uuid>,
     focused_snippet_by_roll: HashMap<Uuid, Uuid>,
     focus_handle: FocusHandle,
+    pending_snippet_reveal: Option<Uuid>,
     page_scroll_handle: ScrollHandle,
     navigator_scroll_handle: ScrollHandle,
     tab_scroll_handle: ScrollHandle,
@@ -205,6 +208,7 @@ impl Paperoll {
             focused_snippet_id,
             focused_snippet_by_roll,
             focus_handle: cx.focus_handle(),
+            pending_snippet_reveal: None,
             page_scroll_handle: ScrollHandle::new(),
             navigator_scroll_handle: ScrollHandle::new(),
             tab_scroll_handle: ScrollHandle::new(),
@@ -511,12 +515,8 @@ impl Paperoll {
         let focus_ix = snippet_ix
             .saturating_sub(1)
             .min(self.rolls[roll_ix].snippets.len() - 1);
-        let editor = self.rolls[roll_ix].snippets[focus_ix].editor.clone();
         let focused_snippet_id = self.rolls[roll_ix].snippets[focus_ix].id;
-        self.remember_focused_snippet(focused_snippet_id);
-        self.scroll_page_to_snippet(focus_ix, window, cx);
-        self.navigator_scroll_handle.scroll_to_item(focus_ix);
-        editor.update(cx, |state, cx| state.focus(window, cx));
+        self.navigate_to_snippet(focused_snippet_id, window, cx);
         self.save(cx);
         cx.notify();
     }
@@ -536,12 +536,8 @@ impl Paperoll {
             .map_or(self.rolls[roll_ix].snippets.len(), |ix| ix + 1);
         let snippet = Self::build_snippet(SnippetData::empty(), window, cx);
         let id = snippet.id;
-        let editor = snippet.editor.clone();
         self.rolls[roll_ix].snippets.insert(insertion_ix, snippet);
-        self.remember_focused_snippet(id);
-        self.scroll_page_to_snippet(insertion_ix, window, cx);
-        self.navigator_scroll_handle.scroll_to_item(insertion_ix);
-        editor.update(cx, |state, cx| state.focus(window, cx));
+        self.navigate_to_snippet(id, window, cx);
         self.save(cx);
         cx.notify();
     }
@@ -552,13 +548,9 @@ impl Paperoll {
         ));
         let roll = Self::build_roll(data, window, cx);
         self.active_roll_id = roll.id;
-        let editor = roll.snippets[0].editor.clone();
         let focused_snippet_id = roll.snippets[0].id;
         self.rolls.push(roll);
-        self.remember_focused_snippet(focused_snippet_id);
-        self.scroll_page_to_snippet(0, window, cx);
-        self.navigator_scroll_handle.scroll_to_item(0);
-        editor.update(cx, |state, cx| state.focus(window, cx));
+        self.navigate_to_snippet(focused_snippet_id, window, cx);
         self.save(cx);
         cx.notify();
     }
@@ -589,11 +581,7 @@ impl Paperoll {
             })
             .unwrap_or(0);
         let focused_snippet_id = self.rolls[active_ix].snippets[focus_ix].id;
-        let editor = self.rolls[active_ix].snippets[focus_ix].editor.clone();
-        self.remember_focused_snippet(focused_snippet_id);
-        self.scroll_page_to_snippet(focus_ix, window, cx);
-        self.navigator_scroll_handle.scroll_to_item(focus_ix);
-        editor.update(cx, |state, cx| state.focus(window, cx));
+        self.navigate_to_snippet(focused_snippet_id, window, cx);
         self.save(cx);
         cx.notify();
     }
@@ -711,15 +699,10 @@ impl Paperoll {
             let snippet_ix = remembered_snippet_id
                 .and_then(|id| roll.snippets.iter().position(|snippet| snippet.id == id))
                 .unwrap_or(0);
-            roll.snippets
-                .get(snippet_ix)
-                .map(|snippet| (snippet_ix, snippet.id, snippet.editor.clone()))
+            roll.snippets.get(snippet_ix).map(|snippet| snippet.id)
         });
-        if let Some((snippet_ix, id, editor)) = target {
-            self.remember_focused_snippet(id);
-            self.scroll_page_to_snippet(snippet_ix, window, cx);
-            self.navigator_scroll_handle.scroll_to_item(snippet_ix);
-            editor.update(cx, |state, cx| state.focus(window, cx));
+        if let Some(id) = target {
+            self.navigate_to_snippet(id, window, cx);
         }
         cx.notify();
     }
@@ -790,25 +773,29 @@ impl Paperoll {
         direction: isize,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> bool {
+    ) {
         let Some((roll_ix, snippet_ix)) = self
             .focused_snippet_id
             .and_then(|snippet_id| self.snippet_position(snippet_id))
         else {
-            return false;
+            return;
         };
         if self.rolls[roll_ix].id != self.active_roll_id {
-            return false;
+            return;
         }
 
         let target_ix = snippet_ix as isize + direction;
         if !(0..self.rolls[roll_ix].snippets.len() as isize).contains(&target_ix) {
-            return false;
+            return;
         }
 
         let snippet_id = self.rolls[roll_ix].snippets[target_ix as usize].id;
         self.navigate_to_snippet(snippet_id, window, cx);
-        true
+        if direction < 0 {
+            window.dispatch_action(Box::new(MoveToEnd), cx);
+        } else {
+            window.dispatch_action(Box::new(MoveToStart), cx);
+        }
     }
 
     fn defer_adjacent_snippet_if_unchanged(
@@ -828,21 +815,15 @@ impl Paperoll {
                 let state = editor.read(cx);
                 state.cursor() == before.0 && state.selected_range() == before.1
             };
-            if !unchanged || !this.focus_adjacent_snippet(direction, window, cx) {
-                return;
-            }
-
-            if direction < 0 {
-                window.dispatch_action(Box::new(MoveToEnd), cx);
-            } else {
-                window.dispatch_action(Box::new(MoveToStart), cx);
+            if unchanged {
+                this.focus_adjacent_snippet(direction, window, cx);
             }
         });
     }
 
-    fn on_move_to_previous_snippet(
+    fn on_move_up_or_previous_snippet(
         &mut self,
-        _: &MoveToPreviousSnippet,
+        _: &MoveUpOrPreviousSnippet,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -860,9 +841,9 @@ impl Paperoll {
         self.defer_adjacent_snippet_if_unchanged(snippet_id, editor, before, -1, window, cx);
     }
 
-    fn on_move_to_next_snippet(
+    fn on_move_down_or_next_snippet(
         &mut self,
-        _: &MoveToNextSnippet,
+        _: &MoveDownOrNextSnippet,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1005,7 +986,7 @@ impl Paperoll {
         }
 
         self.remember_focused_snippet(snippet_id);
-        self.scroll_page_to_snippet(snippet_ix, window, cx);
+        self.pending_snippet_reveal = Some(snippet_id);
         self.navigator_scroll_handle.scroll_to_item(snippet_ix);
         let editor = self.rolls[roll_ix].snippets[snippet_ix].editor.clone();
         editor.update(cx, |state, cx| state.focus(window, cx));
@@ -1086,23 +1067,39 @@ impl Paperoll {
         }
     }
 
-    fn scroll_page_to_snippet(
-        &mut self,
-        snippet_ix: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.page_scroll_handle.scroll_to_top_of_item(snippet_ix);
-
-        // Focus and editor-height updates can relayout the roll in the same
-        // frame. Re-issue the jump after that layout so long rolls cannot
-        // consume it against stale child bounds.
-        let scroll_handle = self.page_scroll_handle.clone();
-        let owner = cx.weak_entity();
-        window.defer(cx, move |_, cx| {
-            scroll_handle.scroll_to_top_of_item(snippet_ix);
-            _ = owner.update(cx, |_, cx| cx.notify());
-        });
+    fn reveal_snippet(&self, snippet_id: Uuid, cx: &mut Context<Self>) {
+        if self.focused_snippet_id != Some(snippet_id) {
+            return;
+        }
+        let Some((roll_ix, snippet_ix)) = self.snippet_position(snippet_id) else {
+            return;
+        };
+        let scroll = &self.page_scroll_handle;
+        let Some(block) = scroll.bounds_for_item(snippet_ix) else {
+            return;
+        };
+        let editor = self.rolls[roll_ix].snippets[snippet_ix].editor.read(cx);
+        let Some(line_height) = editor.line_height() else {
+            return;
+        };
+        let viewport = scroll.bounds();
+        let offset = scroll.offset();
+        // GPUI stores child bounds before applying the scroll offset. The
+        // editor's text rows are already measured in window coordinates.
+        let text = editor.input_bounds();
+        let delta = snippet_reveal_delta(
+            viewport.top()..viewport.bottom(),
+            block.top() + offset.y..block.bottom() + offset.y,
+            text.top()..text.bottom(),
+            line_height,
+        );
+        if delta != px(0.) {
+            scroll.set_offset(gpui::point(
+                offset.x,
+                (offset.y + delta).clamp(-scroll.max_offset().y, px(0.)),
+            ));
+            cx.notify();
+        }
     }
 
     fn on_new_snippet(&mut self, _: &NewSnippet, window: &mut Window, cx: &mut Context<Self>) {
@@ -1503,12 +1500,14 @@ impl Paperoll {
                         if focused { header } else { header.invisible() }
                     })
                     .child(
-                        Editor::new(&snippet.editor)
-                            .pt_0()
-                            .ml(-Size::Medium.input_px())
-                            .appearance(false)
-                            .bordered(false)
-                            .aria_label(format!("Page {} editor", ix + 1)),
+                        div().key_context("SnippetEditor").child(
+                            Editor::new(&snippet.editor)
+                                .pt_0()
+                                .ml(-Size::Medium.input_px())
+                                .appearance(false)
+                                .bordered(false)
+                                .aria_label(format!("Page {} editor", ix + 1)),
+                        ),
                     )
             })
         });
@@ -1573,6 +1572,25 @@ impl Paperoll {
             })
             .child(status)
             .child(shortcuts)
+    }
+}
+
+/// Move only wholly offscreen blocks, revealing up to three visual rows at the near edge.
+fn snippet_reveal_delta(
+    viewport: Range<Pixels>,
+    block: Range<Pixels>,
+    text: Range<Pixels>,
+    line_height: Pixels,
+) -> Pixels {
+    let reveal = (line_height * 3.)
+        .min(text.end - text.start)
+        .min(viewport.end - viewport.start);
+    if block.start >= viewport.end {
+        viewport.end - (text.start + reveal)
+    } else if block.end <= viewport.start {
+        viewport.start - (text.end - reveal)
+    } else {
+        px(0.)
     }
 }
 
@@ -1705,6 +1723,11 @@ impl Focusable for Paperoll {
 
 impl Render for Paperoll {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Run after this frame paints: insertions, roll switches and soft wraps
+        // can all change the target's bounds in the activation frame.
+        if let Some(id) = self.pending_snippet_reveal.take() {
+            cx.defer_in(window, move |this, _, cx| this.reveal_snippet(id, cx));
+        }
         v_flex()
             .key_context("Paperoll")
             .track_focus(&self.focus_handle)
@@ -1716,8 +1739,14 @@ impl Render for Paperoll {
             .on_action(cx.listener(Self::on_delete_empty_snippet_with_command))
             .on_action(cx.listener(Self::on_next_roll))
             .on_action(cx.listener(Self::on_previous_roll))
-            .on_action(cx.listener(Self::on_move_to_previous_snippet))
-            .on_action(cx.listener(Self::on_move_to_next_snippet))
+            .on_action(cx.listener(Self::on_move_up_or_previous_snippet))
+            .on_action(cx.listener(Self::on_move_down_or_next_snippet))
+            .on_action(cx.listener(|this, _: &MoveToPreviousSnippet, window, cx| {
+                this.focus_adjacent_snippet(-1, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &MoveToNextSnippet, window, cx| {
+                this.focus_adjacent_snippet(1, window, cx)
+            }))
             .on_action(cx.listener(Self::on_move_to_document_start))
             .on_action(cx.listener(Self::on_move_to_document_end))
             .on_action(cx.listener(Self::on_increase_font_size))
@@ -1747,9 +1776,30 @@ impl Render for Paperoll {
 mod tests {
     use super::{
         concise_format_error, language_selection_from_label, language_selection_index,
-        next_roll_number, remap_cursor,
+        next_roll_number, remap_cursor, snippet_reveal_delta,
     };
     use crate::detection::{DetectedLanguage, LanguageSelection};
+
+    #[test]
+    fn activation_preserves_partial_visibility_and_reveals_nearest_rows() {
+        use gpui::px;
+        let delta = |block: std::ops::Range<f32>, text: std::ops::Range<f32>| {
+            snippet_reveal_delta(
+                px(100.)..px(300.),
+                px(block.start)..px(block.end),
+                px(text.start)..px(text.end),
+                px(20.),
+            )
+        };
+        // Even a sliver of the target block is enough to leave the roll alone.
+        assert_eq!(delta(299.0..1000.0, 315.0..995.0), px(0.));
+        assert_eq!(delta(-600.0..101.0, -580.0..100.0), px(0.));
+        // Account for the header above the first row and padding below the last.
+        assert_eq!(delta(300.0..1000.0, 315.0..995.0), px(-75.));
+        assert_eq!(delta(-600.0..100.0, -585.0..95.0), px(65.));
+        // A one-row snippet only needs one row of space.
+        assert_eq!(delta(400.0..440.0, 415.0..435.0), px(-135.));
+    }
 
     #[test]
     fn new_roll_number_follows_the_latest_remaining_default_name() {
